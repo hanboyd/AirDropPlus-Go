@@ -6,6 +6,13 @@ $Exe = Join-Path $ProjectRoot "dist\AirDropPlus-Go.exe"
 $ConfigPath = Join-Path $ProjectRoot "dist\data\config.json"
 $ReceivedRoot = [IO.Path]::GetFullPath((Join-Path $ProjectRoot "dist\received"))
 if (-not (Test-Path -LiteralPath $Exe)) { throw "Missing build: $Exe" }
+$PidFile = Join-Path $ProjectRoot "dist\data\airdropplus-go.pid"
+if (Test-Path -LiteralPath $PidFile) {
+    $StalePid = [int](Get-Content -Raw -LiteralPath $PidFile)
+    $StaleProcess = Get-Process -Id $StalePid -ErrorAction SilentlyContinue
+    if ($null -ne $StaleProcess) { throw "Refusing to replace PID file for a running process" }
+    Remove-Item -LiteralPath $PidFile
+}
 
 $Proc = Start-Process -FilePath $Exe -WorkingDirectory $ProjectRoot -WindowStyle Hidden -PassThru
 try {
@@ -20,6 +27,12 @@ try {
     if (-not $Ready) { throw "Service did not become ready" }
     $Config = Get-Content -Raw -LiteralPath $ConfigPath | ConvertFrom-Json
     $Headers = @{ Authorization = $Config.token }
+
+    $DuplicateError = Join-Path $ProjectRoot "dist\data\duplicate.stderr.log"
+    $Duplicate = Start-Process -FilePath $Exe -WorkingDirectory $ProjectRoot -WindowStyle Hidden -PassThru -RedirectStandardError $DuplicateError
+    if (-not $Duplicate.WaitForExit(5000)) { Stop-Process -Id $Duplicate.Id; throw "Duplicate process did not exit" }
+    if ($Duplicate.ExitCode -eq 0) { throw "Duplicate process unexpectedly started" }
+    if ([int](Get-Content -Raw -LiteralPath $PidFile) -ne $Proc.Id) { throw "Duplicate launch replaced the active PID file" }
 
     $Unauthorized = $false
     try { Invoke-WebRequest -Uri "http://127.0.0.1:53317/api/v1/clipboard" -SkipHttpErrorCheck -TimeoutSec 3 | ForEach-Object { $Unauthorized = $_.StatusCode -eq 401 } } catch {}
@@ -36,8 +49,10 @@ try {
         Health = $Health.data.version
         UnauthorizedRejected = $Unauthorized
         AuthenticatedUpload = $true
+        DuplicateRejected = $true
         ProcessId = $Proc.Id
     }
 } finally {
     if (-not $Proc.HasExited) { Stop-Process -Id $Proc.Id; $Proc.WaitForExit(5000) | Out-Null }
+    if (Test-Path -LiteralPath $PidFile) { Remove-Item -LiteralPath $PidFile }
 }

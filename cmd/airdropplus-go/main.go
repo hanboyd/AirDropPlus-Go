@@ -15,36 +15,48 @@ import (
 	"github.com/hanboyd/AirDropPlus-Go/internal/clipboard"
 	"github.com/hanboyd/AirDropPlus-Go/internal/config"
 	"github.com/hanboyd/AirDropPlus-Go/internal/server"
+	"github.com/hanboyd/AirDropPlus-Go/internal/singleinstance"
 )
 
 var version = "dev"
 
 func main() {
+	os.Exit(run())
+}
+
+func run() int {
 	root, err := executableDir()
 	if err != nil {
-		fatal(err)
+		return fail(err)
 	}
 	configPath := flag.String("config", filepath.Join(root, "data", "config.json"), "configuration file")
 	showVersion := flag.Bool("version", false, "print version")
 	flag.Parse()
 	if *showVersion {
 		fmt.Println(version)
-		return
+		return 0
 	}
 
 	cfg, created, err := config.LoadOrCreate(*configPath)
 	if err != nil {
-		fatal(err)
+		return fail(err)
 	}
+	releaseInstance, err := singleinstance.Acquire("AirDropPlus-Go")
+	if err != nil {
+		return fail(err)
+	}
+	defer releaseInstance()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	app, err := server.New(cfg, clipboard.New(), logger)
 	if err != nil {
-		fatal(err)
+		return fail(err)
 	}
 	httpServer := app.HTTPServer()
 
 	pidPath := filepath.Join(filepath.Dir(*configPath), "airdropplus-go.pid")
-	_ = os.WriteFile(pidPath, []byte(fmt.Sprint(os.Getpid())), 0o600)
+	if err := os.WriteFile(pidPath, []byte(fmt.Sprint(os.Getpid())), 0o600); err != nil {
+		return fail(fmt.Errorf("write PID file: %w", err))
+	}
 	defer os.Remove(pidPath)
 	if created {
 		fmt.Printf("Created private config: %s\n", *configPath)
@@ -59,13 +71,16 @@ func main() {
 	select {
 	case err := <-errCh:
 		if err != nil && err != http.ErrServerClosed {
-			fatal(err)
+			return fail(err)
 		}
 	case <-stop:
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		_ = httpServer.Shutdown(ctx)
+		if err := httpServer.Shutdown(ctx); err != nil {
+			return fail(err)
+		}
 	}
+	return 0
 }
 
 func executableDir() (string, error) {
@@ -75,4 +90,4 @@ func executableDir() (string, error) {
 	}
 	return filepath.Dir(p), nil
 }
-func fatal(err error) { fmt.Fprintln(os.Stderr, "AirDropPlus-Go:", err); os.Exit(1) }
+func fail(err error) int { fmt.Fprintln(os.Stderr, "AirDropPlus-Go:", err); return 1 }

@@ -10,7 +10,8 @@
 - 兼容 AirDropPlus 1.5 已签名 iOS 快捷指令的 `/file`、`/clipboard` 接口
 - 独立的新 `/api/v1` 接口
 - 随机 192 位令牌鉴权、固定端口、上传大小限制、不向客户端泄露 Windows 文件路径
-- 后台启动/精确停止脚本（不注册服务，不设置开机启动）
+- 单实例保护、后台启动、状态查询和精确停止脚本（不注册服务，不设置开机启动）
+- 可选的“仅专用网络”Windows 防火墙规则脚本
 
 ## 目录原则
 
@@ -56,13 +57,29 @@ AirDropPlus-Go/
 .\scripts\Stop.ps1
 ```
 
-停止脚本会核对 PID 与可执行文件完整路径，不匹配时保持现状。
+查询状态：
+
+```powershell
+.\scripts\Status.ps1
+```
+
+启停脚本会核对 PID、命名互斥量、可执行文件完整路径和健康接口；目标不匹配时保持现状。重复启动会返回现有进程，不会覆盖 PID 文件。
+
+需要从 iPhone 联调时，可用管理员 PowerShell 添加只允许专用网络、目标仅为本 EXE 和当前 TCP 端口的规则：
+
+```powershell
+.\scripts\Enable-PrivateFirewall.ps1
+# 回滚：
+.\scripts\Remove-PrivateFirewall.ps1
+```
+
+项目不会自动执行这两个脚本，也不会开放公用网络。
 
 ## iPhone 快捷指令
 
 Windows 无法替 Apple 签名新的 `.shortcut` 包；未签名文件在 iPhone 上不能直接导入。项目因此提供两条可验证路径：
 
-1. 直接导入原 AirDropPlus 官方已签名快捷指令，并填入本项目地址和 token。本服务保留了它需要的公开 API，能立即使用。
+1. 直接导入原 AirDropPlus 官方已签名快捷指令，并填入本项目地址和 token。本服务实现了它需要的公开 API；真实 iPhone 验证暂缓。
 2. 按 [快捷指令蓝图](shortcuts/shortcut-blueprint.json) 创建完全属于本项目的版本；动作清单见 [iPhone 配置](docs/iPhone-shortcut.md)。创建后可由 iPhone 自己生成 iCloud 分享链接。
 
 无论哪种方式，iOS 都会要求本人确认“添加快捷指令”和第一次局域网/剪贴板/文件权限，这是系统安全机制，电脑端不能代按。
@@ -103,7 +120,7 @@ go vet -unsafeptr=false ./...
 .\scripts\Build.ps1
 ```
 
-测试覆盖鉴权、文字与图片模拟剪贴板、文件上传清洗/重名、Windows 路径不泄露、临时文件引用下载，以及 DIB ↔ PNG 像素方向转换。
+测试覆盖鉴权、文字与图片模拟剪贴板、文件上传清洗/重名、Windows 路径不泄露、临时文件引用下载、重复实例拒绝，以及 DIB/DIBV5 ↔ PNG 像素和 Alpha 转换。真实 iPhone 导入、权限和局域网联调按当前阶段要求暂不执行。
 
 `unsafeptr` 是唯一关闭的 vet 分析器：Win32 `GlobalLock` 通过系统调用返回原始指针值，Go 必须在这个很小的 FFI 边界把它转换成字节视图。其他 vet 分析器保持启用。
 

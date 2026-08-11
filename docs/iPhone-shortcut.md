@@ -1,5 +1,7 @@
 # iPhone 快捷指令配置
 
+> 当前阶段只完成快捷指令协议和配置材料，不执行真实 iPhone 导入、权限授权或局域网联调。
+
 ## 立即可用：兼容的已签名快捷指令
 
 1. 在 iPhone Safari 打开原项目发布的 [AirDrop Plus 1.5.4 快捷指令](https://www.icloud.com/shortcuts/c499c9a3d9b04e189cce38d9560b3e2e)。

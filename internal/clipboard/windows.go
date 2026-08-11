@@ -17,9 +17,11 @@ import (
 const (
 	cfTextUnicode = 13
 	cfDIB         = 8
+	cfDIBV5       = 17
 	cfHDROP       = 15
 	gmemMoveable  = 0x0002
 	biRGB         = 0
+	biBitFields   = 3
 )
 
 var (
@@ -102,8 +104,14 @@ func (w *Windows) Read() (Content, error) {
 		}
 		return Content{Kind: Files, Files: files}, nil
 	}
-	if formatAvailable(cfDIB) {
-		b, err := clipboardBytes(cfDIB)
+	imageFormat := uintptr(0)
+	if formatAvailable(cfDIBV5) {
+		imageFormat = cfDIBV5
+	} else if formatAvailable(cfDIB) {
+		imageFormat = cfDIB
+	}
+	if imageFormat != 0 {
+		b, err := clipboardBytes(imageFormat)
 		if err != nil {
 			return Content{}, err
 		}
@@ -215,17 +223,47 @@ func dibToPNG(b []byte) ([]byte, error) {
 	rawH := int32(binary.LittleEndian.Uint32(b[8:12]))
 	bits := int(binary.LittleEndian.Uint16(b[14:16]))
 	compression := binary.LittleEndian.Uint32(b[16:20])
-	if header < 40 || w <= 0 || rawH == 0 || (bits != 24 && bits != 32) || compression != biRGB {
+	if header < 40 || header > len(b) || w <= 0 || rawH == 0 || (bits != 24 && bits != 32) || (compression != biRGB && compression != biBitFields) {
 		return nil, fmt.Errorf("unsupported DIB: header=%d width=%d height=%d bits=%d compression=%d", header, w, rawH, bits, compression)
+	}
+	if compression == biBitFields && bits != 32 {
+		return nil, fmt.Errorf("unsupported bitfield DIB depth: %d", bits)
 	}
 	h := int(rawH)
 	topDown := h < 0
 	if topDown {
 		h = -h
 	}
+	pixelOffset := header
+	redMask, greenMask, blueMask, alphaMask := uint32(0x00ff0000), uint32(0x0000ff00), uint32(0x000000ff), uint32(0xff000000)
+	if compression == biBitFields {
+		const maskOffset = 40
+		if maskOffset+12 > len(b) {
+			return nil, fmt.Errorf("truncated DIB color masks")
+		}
+		redMask = binary.LittleEndian.Uint32(b[maskOffset : maskOffset+4])
+		greenMask = binary.LittleEndian.Uint32(b[maskOffset+4 : maskOffset+8])
+		blueMask = binary.LittleEndian.Uint32(b[maskOffset+8 : maskOffset+12])
+		alphaMask = 0
+		if header >= 56 && maskOffset+16 <= len(b) {
+			alphaMask = binary.LittleEndian.Uint32(b[maskOffset+12 : maskOffset+16])
+		}
+		if header == 40 {
+			pixelOffset += 12
+		}
+	}
 	stride := ((w*bits + 31) / 32) * 4
-	if header+stride*h > len(b) {
+	if pixelOffset+stride*h > len(b) {
 		return nil, fmt.Errorf("truncated DIB")
+	}
+	useBIAlpha := false
+	if bits == 32 && compression == biRGB {
+		for i := pixelOffset + 3; i < pixelOffset+stride*h; i += 4 {
+			if b[i] != 0 {
+				useBIAlpha = true
+				break
+			}
+		}
 	}
 	img := image.NewNRGBA(image.Rect(0, 0, w, h))
 	for y := 0; y < h; y++ {
@@ -233,11 +271,23 @@ func dibToPNG(b []byte) ([]byte, error) {
 		if topDown {
 			sy = y
 		}
-		row := header + sy*stride
+		row := pixelOffset + sy*stride
 		for x := 0; x < w; x++ {
 			i := row + x*(bits/8)
+			if compression == biBitFields {
+				value := binary.LittleEndian.Uint32(b[i : i+4])
+				a := byte(255)
+				if alphaMask != 0 {
+					a = maskByte(value, alphaMask)
+				}
+				img.SetNRGBA(x, y, color.NRGBA{
+					R: maskByte(value, redMask), G: maskByte(value, greenMask),
+					B: maskByte(value, blueMask), A: a,
+				})
+				continue
+			}
 			a := byte(255)
-			if bits == 32 {
+			if bits == 32 && useBIAlpha {
 				a = b[i+3]
 			}
 			img.SetNRGBA(x, y, color.NRGBA{R: b[i+2], G: b[i+1], B: b[i], A: a})
@@ -248,4 +298,17 @@ func dibToPNG(b []byte) ([]byte, error) {
 		return nil, err
 	}
 	return out.Bytes(), nil
+}
+
+func maskByte(value, mask uint32) byte {
+	if mask == 0 {
+		return 0
+	}
+	shift := 0
+	for mask&(1<<shift) == 0 {
+		shift++
+	}
+	max := mask >> shift
+	component := (value & mask) >> shift
+	return byte((uint64(component)*255 + uint64(max)/2) / uint64(max))
 }

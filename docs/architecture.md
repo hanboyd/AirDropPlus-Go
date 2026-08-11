@@ -10,10 +10,10 @@ Go HTTP 服务
   ├─ received/：手机上传文件
   └─ Win32 Clipboard
        ├─ CF_UNICODETEXT
-       ├─ CF_DIB → PNG
+       ├─ CF_DIB / CF_DIBV5 → PNG
        └─ CF_HDROP → 不透明临时文件引用
 ```
 
 项目不包含账号、云端、中转、WebSocket、mDNS、SQLite、Windows Service 或开机启动。个人单机用途下，这些组件会增加维护面，却不改善固定地址快捷指令的核心路径。
 
-采用 Go 标准库 HTTP 服务，避免 GUI/托盘库与 C 编译器依赖。后台运行由可审计的 PowerShell 启停脚本负责，不写注册表和计划任务。
+采用 Go 标准库 HTTP 服务，避免 GUI/托盘库与 C 编译器依赖。后台运行由可审计的 PowerShell 启停脚本负责，不写注册表和计划任务。Windows 命名互斥量负责单实例判断，PID 文件只用于精确管理进程，即使强制终止留下 PID 文件也不会误判为活动实例。
