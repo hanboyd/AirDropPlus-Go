@@ -1,0 +1,9 @@
+{
+  "listen": "0.0.0.0:53317",
+  "public_url": "http://192.168.1.50:53317",
+  "token": "",
+  "download_dir": "received",
+  "max_upload_bytes": 1073741824,
+  "image_upload_to_clipboard": true,
+  "legacy_shortcut_version": "1.5"
+}

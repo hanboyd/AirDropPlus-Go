@@ -1,0 +1,24 @@
+{
+  "name": "AirDropPlus-Go",
+  "purpose": "Apple Shortcuts source blueprint; use docs/iPhone-shortcut.md to build or use the compatible signed shortcut.",
+  "import_questions": [
+    {"key": "base_url", "prompt": "电脑固定地址", "default": "http://192.168.1.50:53317"},
+    {"key": "token", "prompt": "AirDropPlus-Go token", "default": ""}
+  ],
+  "menu": {
+    "发送": [
+      "If Shortcut Input exists, repeat each item and POST multipart field 'file' to {base_url}/file",
+      "Otherwise get clipboard; if image, base64 encode and POST JSON {type:image,data:<base64>} to {base_url}/api/v1/clipboard",
+      "Otherwise POST form field 'clipboard' to {base_url}/clipboard"
+    ],
+    "接收": [
+      "GET {base_url}/clipboard",
+      "If data.type is text, copy data.data",
+      "If data.type is img, base64 decode data.data and copy result",
+      "If data.type is file, repeat IDs and GET {base_url}/file/{id}, then save/share results"
+    ],
+    "测试": ["GET {base_url}/ with Authorization and ShortcutVersion headers"]
+  },
+  "headers": {"Authorization": "{token}", "ShortcutVersion": "1.5.4"},
+  "share_sheet_types": ["Files", "Images", "Media", "PDFs", "Text", "URLs"]
+}

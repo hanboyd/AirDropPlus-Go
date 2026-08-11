@@ -1,0 +1,6 @@
+AirDropPlus-Go is an independent Go reimplementation inspired by AirDropPlus
+(https://github.com/yeyt97/AirDropPlus), originally copyright (c) 2023
+yeytytytytyytyt and distributed under the MIT License.
+
+No Python source code is included. The legacy HTTP compatibility layer follows
+the public AirDropPlus API documentation so its signed iOS Shortcut can be used.

@@ -1,0 +1,6 @@
+/airdropplus-go.exe
+/dist/
+/data/config.json
+/data/*.pid
+/received/
+*.log
