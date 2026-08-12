@@ -21,6 +21,8 @@ type Config struct {
 	MaxUploadBytes        int64  `json:"max_upload_bytes"`
 	ImageUploadClipboard  bool   `json:"image_upload_to_clipboard"`
 	LegacyShortcutVersion string `json:"legacy_shortcut_version"`
+	HistoryLimit          int    `json:"history_limit"`
+	SharePCClipboard      bool   `json:"share_pc_clipboard"`
 }
 
 func Default(baseDir string) Config {
@@ -31,6 +33,8 @@ func Default(baseDir string) Config {
 		MaxUploadBytes:        DefaultMaxUploadBytes,
 		ImageUploadClipboard:  true,
 		LegacyShortcutVersion: "1.5",
+		HistoryLimit:          10,
+		SharePCClipboard:      true,
 	}
 }
 
@@ -97,6 +101,9 @@ func (c Config) Validate() error {
 	}
 	if c.MaxUploadBytes <= 0 {
 		return errors.New("max_upload_bytes must be positive")
+	}
+	if c.HistoryLimit < 1 || c.HistoryLimit > 100 {
+		return errors.New("history_limit must be between 1 and 100")
 	}
 	return nil
 }

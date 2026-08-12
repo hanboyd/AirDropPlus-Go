@@ -4,3 +4,8 @@ yeytytytytyytyt and distributed under the MIT License.
 
 No Python source code is included. The legacy HTTP compatibility layer follows
 the public AirDropPlus API documentation so its signed iOS Shortcut can be used.
+
+The Windows package includes Bitstream Charter font files from
+https://github.com/davidseegert/Bitstream-Charter. Their original license and
+copyright notice are preserved in assets/fonts/Charter-LICENSE.txt and in the
+distributed fonts/Charter-LICENSE.txt file.

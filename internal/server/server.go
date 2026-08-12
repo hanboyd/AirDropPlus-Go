@@ -28,11 +28,23 @@ import (
 )
 
 type Server struct {
-	cfg   config.Config
-	clip  clipboard.Service
-	log   *slog.Logger
-	mux   *http.ServeMux
-	files sync.Map
+	cfg             config.Config
+	clip            clipboard.Service
+	log             *slog.Logger
+	mux             *http.ServeMux
+	files           sync.Map
+	onAuthenticated func(string)
+	version         string
+}
+
+type Option func(*Server)
+
+func WithAuthenticatedObserver(fn func(string)) Option {
+	return func(s *Server) { s.onAuthenticated = fn }
+}
+
+func WithVersion(version string) Option {
+	return func(s *Server) { s.version = version }
 }
 
 type response struct {
@@ -58,7 +70,7 @@ type fileRef struct {
 	CreatedAt time.Time
 }
 
-func New(cfg config.Config, clip clipboard.Service, logger *slog.Logger) (*Server, error) {
+func New(cfg config.Config, clip clipboard.Service, logger *slog.Logger, options ...Option) (*Server, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
@@ -71,7 +83,10 @@ func New(cfg config.Config, clip clipboard.Service, logger *slog.Logger) (*Serve
 	if err := os.MkdirAll(cfg.DownloadDir, 0o700); err != nil {
 		return nil, fmt.Errorf("create download directory: %w", err)
 	}
-	s := &Server{cfg: cfg, clip: clip, log: logger, mux: http.NewServeMux()}
+	s := &Server{cfg: cfg, clip: clip, log: logger, mux: http.NewServeMux(), version: "dev"}
+	for _, option := range options {
+		option(s)
+	}
 	s.routes()
 	return s, nil
 }
@@ -92,7 +107,7 @@ func (s *Server) HTTPServer() *http.Server {
 func (s *Server) routes() {
 	s.mux.HandleFunc("GET /", func(w http.ResponseWriter, _ *http.Request) { io.WriteString(w, "Hello World!") })
 	s.mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, http.StatusOK, response{true, "ok", map[string]string{"version": "0.1.0"}})
+		writeJSON(w, http.StatusOK, response{true, "ok", map[string]string{"version": s.version}})
 	})
 	s.mux.Handle("GET /api/v1/clipboard", s.auth(http.HandlerFunc(s.getClipboardV1)))
 	s.mux.Handle("POST /api/v1/clipboard", s.auth(http.HandlerFunc(s.postClipboardV1)))
@@ -122,6 +137,10 @@ func (s *Server) auth(next http.Handler) http.Handler {
 				writeJSON(w, http.StatusBadRequest, response{false, "shortcut version mismatch", nil})
 				return
 			}
+		}
+		if s.onAuthenticated != nil {
+			host, _, _ := net.SplitHostPort(r.RemoteAddr)
+			s.onAuthenticated(host)
 		}
 		next.ServeHTTP(w, r)
 	})

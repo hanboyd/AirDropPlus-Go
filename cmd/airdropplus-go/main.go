@@ -12,10 +12,14 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/hanboyd/AirDropPlus-Go/internal/bridge"
 	"github.com/hanboyd/AirDropPlus-Go/internal/clipboard"
 	"github.com/hanboyd/AirDropPlus-Go/internal/config"
+	"github.com/hanboyd/AirDropPlus-Go/internal/device"
+	"github.com/hanboyd/AirDropPlus-Go/internal/history"
 	"github.com/hanboyd/AirDropPlus-Go/internal/server"
 	"github.com/hanboyd/AirDropPlus-Go/internal/singleinstance"
+	"github.com/hanboyd/AirDropPlus-Go/internal/ui"
 )
 
 var version = "dev"
@@ -47,7 +51,10 @@ func run() int {
 	}
 	defer releaseInstance()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
-	app, err := server.New(cfg, clipboard.New(), logger)
+	store := history.New(cfg.HistoryLimit)
+	clip := bridge.New(clipboard.New(), store, cfg.SharePCClipboard)
+	tracker := device.New()
+	app, err := server.New(cfg, clip, logger, server.WithAuthenticatedObserver(tracker.Seen), server.WithVersion(version))
 	if err != nil {
 		return fail(err)
 	}
@@ -66,6 +73,10 @@ func run() int {
 
 	errCh := make(chan error, 1)
 	go func() { errCh <- httpServer.ListenAndServe() }()
+	uiContext, stopUI := context.WithCancel(context.Background())
+	defer stopUI()
+	uiErrCh := make(chan error, 1)
+	go func() { uiErrCh <- ui.Run(uiContext, store, clip, tracker) }()
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 	select {
@@ -73,7 +84,15 @@ func run() int {
 		if err != nil && err != http.ErrServerClosed {
 			return fail(err)
 		}
+	case err := <-uiErrCh:
+		if err != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			_ = httpServer.Shutdown(ctx)
+			return fail(err)
+		}
 	case <-stop:
+		stopUI()
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if err := httpServer.Shutdown(ctx); err != nil {

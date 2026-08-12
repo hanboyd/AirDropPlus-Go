@@ -1,14 +1,16 @@
 # 验证记录
 
-验证日期：2026-08-11（Windows 11，Go 1.26.5 windows/amd64）。
+验证日期：2026-08-12（Windows 11，Go 1.26.5 windows/amd64）。
 
 已通过：
 
-- `go test ./...`：全部通过；覆盖配置、鉴权、文字/图片剪贴板模拟、文件上传、重名、文件引用下载、DIB/DIBV5/Alpha 转换。
+- `go test ./...`：全部通过；覆盖配置、鉴权、双向文字/图片剪贴板模拟、历史去重和 64 MiB 内存上限、文件上传、重名、文件引用下载、DIB/DIBV5/Alpha 转换。
 - `go vet -unsafeptr=false ./...`：通过。只排除 Win32 `GlobalLock` 必需的指针转换启发式告警，其他分析器保持启用。
-- `scripts/Build.ps1`：成功生成 Windows amd64 原生单文件 `dist/AirDropPlus-Go.exe`。
-- EXE SHA-256：`7AD0591587DE8FE6704F36DFBA938C97645CF36BB3C6332496BC4419548B3523`。
-- `scripts/Smoke-Test.ps1`：真实隐藏进程启动成功；`/healthz` 返回 `0.1.0`；无 token 请求返回 401；带 token 的 multipart 文件上传成功；第二实例被命名互斥量拒绝且未覆盖 PID；测试副本删除；测试进程按 PID 停止。
+- `scripts/Build.ps1 -Version 0.2.0` 成功生成原生 Windows GUI 构建，`/healthz` 返回 `0.2.0`；EXE SHA-256：`6DDDC339350FE318260DCC85FF3FC27D9EED87C151E16EA74B01A9A08D5CA048`。
+- 真实隐藏进程启动成功；无 token 请求返回 401；带 token 的 iPhone → PC 文字与 PNG 写入成功；PC → iPhone 鉴权读取返回相同文字与有效 PNG。
+- 托盘 UI 使用 Win32/GDI、系统剪贴板事件和进程内通知；不包含 Electron、Chromium 或 WebView。手机侧写入会触发展开消息，面板 10 秒空闲后隐藏。
+- 文字和图片往返测试后 5 秒采样：CPU 时间增加 0.031 秒，工作集 25.2 MiB，私有内存 52.4 MiB。重启清空历史后的纯空闲 5 秒采样：CPU 时间增加 0 秒，工作集 15.6 MiB，私有内存 46.8 MiB，11 个线程。
+- Charter 字体从 `dist/fonts` 以 `FR_PRIVATE` 方式加载，退出时移除，不注册或修改 Windows 系统字体。
 - 管理脚本：隐藏启动、状态查询、重复启动保护、精确停止、停止后非运行状态均验证通过。
 - PowerShell 解析器：`scripts/*.ps1` 全部无语法错误。
 

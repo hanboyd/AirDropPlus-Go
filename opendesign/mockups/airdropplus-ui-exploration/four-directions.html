@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AirDropPlus-Go UI｜四个低保真方向</title>
+  <style>
+    :root { --paper:#f7f5ef; --ink:#202020; --muted:#706e68; --line:#aaa69d; --accent:#c9f27a; --blue:#b9ddf6; }
+    * { box-sizing:border-box; }
+    body { margin:0; color:var(--ink); background:#dedbd2; font-family:"Segoe Print","Comic Sans MS",cursive; }
+    button { font:inherit; color:inherit; background:transparent; }
+    .page { width:min(1760px,96vw); margin:24px auto 48px; }
+    .intro { display:flex; align-items:end; justify-content:space-between; gap:32px; margin:0 6px 18px; }
+    h1 { margin:0; font-size:30px; letter-spacing:.5px; }
+    .intro p { margin:4px 0 0; color:var(--muted); font-size:15px; }
+    .legend { display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end; }
+    .chip { border:1.7px solid var(--ink); border-radius:999px; padding:5px 11px; font-size:13px; background:var(--paper); }
+    .board { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:22px; }
+    .direction { background:var(--paper); border:2px solid var(--ink); border-radius:8px 13px 7px 11px; padding:18px; box-shadow:4px 5px 0 rgba(32,32,32,.18); min-height:650px; }
+    .dir-head { display:flex; justify-content:space-between; align-items:start; gap:18px; margin-bottom:13px; }
+    .dir-title { display:flex; align-items:center; gap:10px; }
+    .letter { width:34px; height:34px; display:grid; place-items:center; border:2px solid var(--ink); border-radius:50% 45% 52% 48%; font-weight:700; }
+    h2 { margin:0; font-size:21px; }
+    .subtitle { font-size:13px; color:var(--muted); margin-top:2px; }
+    .note { max-width:250px; font-size:12px; line-height:1.35; border-bottom:2px solid var(--accent); transform:rotate(-1deg); }
+    .window { background:#fff; border:2px solid var(--ink); border-radius:10px; overflow:hidden; height:566px; position:relative; }
+    .titlebar { height:39px; display:flex; align-items:center; justify-content:space-between; padding:0 12px; border-bottom:1.5px solid var(--ink); background:#efede7; font-size:13px; }
+    .window-buttons { display:flex; gap:7px; }
+    .window-buttons i { display:block; width:10px; height:10px; border:1.5px solid var(--ink); border-radius:50%; }
+    .status { display:flex; align-items:center; gap:8px; }
+    .dot { width:11px; height:11px; border:1.5px solid var(--ink); border-radius:50%; background:var(--accent); }
+    .dot.off { background:#fff; }
+    .tiny { color:var(--muted); font-size:11px; }
+    .sketch-btn { border:1.5px solid var(--ink); border-radius:6px 8px 5px 7px; padding:5px 9px; font-size:12px; min-height:30px; }
+    .sketch-btn.primary { background:var(--accent); }
+    .iconbox { width:27px; height:27px; border:1.5px solid var(--ink); border-radius:5px; display:grid; place-items:center; font:10px ui-monospace,monospace; }
+    .tabs { display:flex; border-bottom:1.5px solid var(--ink); }
+    .tab { flex:1; text-align:center; padding:8px 4px; font-size:12px; border-right:1px dashed var(--line); }
+    .tab:last-child { border-right:0; }
+    .tab.active { background:var(--blue); text-decoration:underline; }
+    .clip { border:1.5px solid var(--ink); border-radius:7px 10px 6px 8px; padding:9px; background:#fff; }
+    .clip.pinned { background:#f4f6df; }
+    .clip p { margin:0 0 7px; font-family:"Microsoft YaHei",sans-serif; font-size:12px; line-height:1.4; }
+    .clip-foot { display:flex; justify-content:space-between; align-items:center; gap:8px; }
+    .actions { display:flex; gap:5px; }
+    .mini { border:1px solid var(--ink); border-radius:4px; padding:2px 5px; font-size:10px; }
+    .photo { min-height:90px; border:1.5px solid var(--ink); background:repeating-linear-gradient(135deg,#f1efe9 0,#f1efe9 8px,#e4e1d9 8px,#e4e1d9 16px); display:grid; place-items:center; font:11px ui-monospace,monospace; }
+    .caption { font-size:11px; color:var(--muted); margin-top:5px; }
+
+    /* A */
+    .a .window { width:370px; margin:0 auto; }
+    .a .connection { display:flex; justify-content:space-between; align-items:center; padding:12px; border-bottom:1.5px solid var(--ink); }
+    .a .identity { display:flex; align-items:center; gap:9px; }
+    .a .phone { width:30px; height:42px; border:2px solid var(--ink); border-radius:7px; display:grid; place-items:center; font:9px ui-monospace,monospace; }
+    .a .list { display:grid; gap:8px; padding:10px; height:390px; overflow:hidden; }
+    .a .footerbar { position:absolute; inset:auto 0 0; display:flex; justify-content:space-between; padding:9px 10px; border-top:1.5px solid var(--ink); background:#efede7; }
+
+    /* B */
+    .b .workspace { display:grid; grid-template-columns:190px 1fr 210px; height:527px; }
+    .b .side { border-right:1.5px solid var(--ink); padding:11px; background:#f4f2ec; }
+    .b .side-card { border:1.5px solid var(--ink); padding:10px; margin-bottom:10px; border-radius:8px; }
+    .b .phone-big { width:45px; height:64px; border:2px solid var(--ink); border-radius:10px; margin:5px auto 9px; display:grid; place-items:center; font:9px ui-monospace,monospace; }
+    .b .navitem { padding:7px 5px; border-bottom:1px dashed var(--line); font-size:12px; }
+    .b .navitem.active { background:var(--blue); }
+    .b .main { padding:11px; overflow:hidden; }
+    .b .toolbar { display:flex; gap:7px; margin-bottom:9px; }
+    .search { flex:1; border:1.5px solid var(--ink); border-radius:6px; padding:6px 9px; color:var(--muted); font-size:11px; }
+    .b .main-list { display:grid; gap:8px; }
+    .b .detail { border-left:1.5px solid var(--ink); padding:11px; }
+    .b .detail h3 { margin:0 0 8px; font-size:14px; }
+    .b .detail-text { font-family:"Microsoft YaHei",sans-serif; font-size:12px; line-height:1.6; border:1px dashed var(--line); padding:8px; min-height:130px; }
+    .b .detail-actions { display:grid; gap:7px; margin-top:10px; }
+
+    /* C */
+    .c .top-status { display:flex; align-items:center; justify-content:space-between; padding:10px 12px; border-bottom:1.5px solid var(--ink); }
+    .c .device-line { display:flex; gap:18px; align-items:center; }
+    .c .stream-tools { display:flex; gap:8px; padding:9px 12px; border-bottom:1px dashed var(--line); }
+    .c .timeline { height:438px; padding:10px 18px 12px 76px; overflow:hidden; position:relative; }
+    .c .timeline::before { content:""; position:absolute; left:51px; top:8px; bottom:0; border-left:2px solid var(--ink); }
+    .c .event { position:relative; margin-bottom:11px; }
+    .c .event::before { content:""; position:absolute; left:-31px; top:12px; width:10px; height:10px; background:#fff; border:2px solid var(--ink); border-radius:50%; }
+    .c .time { position:absolute; left:-69px; top:8px; width:34px; font-size:10px; color:var(--muted); text-align:right; }
+    .c .event-row { display:grid; grid-template-columns:1fr auto; gap:10px; align-items:start; }
+    .c .image-event { display:grid; grid-template-columns:110px 1fr; gap:10px; }
+    .c .image-event .photo { min-height:74px; }
+
+    /* D */
+    .d .gallery-layout { display:grid; grid-template-columns:235px 1fr; height:527px; }
+    .d .text-dock { border-right:1.5px solid var(--ink); padding:10px; background:#f4f2ec; }
+    .d .dock-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; }
+    .d .dock-list { display:grid; gap:7px; }
+    .d .dock-list .clip p { max-height:35px; overflow:hidden; }
+    .d .gallery { padding:10px; display:grid; grid-template-rows:auto 1fr auto; gap:9px; }
+    .d .gallery-head { display:flex; justify-content:space-between; align-items:center; }
+    .d .gallery-head h3 { margin:0; font-size:15px; }
+    .d .gallery-body { display:grid; grid-template-columns:1.4fr .8fr; gap:9px; min-height:0; }
+    .d .hero .photo { height:100%; min-height:315px; }
+    .d .thumbs { display:grid; grid-template-columns:repeat(2,1fr); gap:7px; align-content:start; }
+    .d .thumbs .photo { min-height:82px; }
+    .d .dropzone { border:1.5px dashed var(--ink); padding:8px; text-align:center; font-size:11px; }
+    .annotation { position:absolute; z-index:2; padding:3px 6px; background:#fff7c7; border:1px solid var(--ink); font-size:10px; transform:rotate(-2deg); }
+    .a .annotation { right:5px; top:114px; }
+    .b .annotation { left:176px; bottom:5px; }
+    .c .annotation { right:6px; bottom:5px; }
+    .d .annotation { right:8px; top:42px; }
+    @media (max-width:1100px) { .board { grid-template-columns:1fr; } }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <header class="intro">
+      <div><h1>AirDropPlus-Go UI｜四个结构方向</h1><p>只比较信息结构与使用路径；黑白草图不代表最终视觉。</p></div>
+      <div class="legend"><span class="chip">最近 10 条</span><span class="chip">文字 + 图片</span><span class="chip">文件入口弱化</span><span class="chip">Windows 11</span></div>
+    </header>
+    <section class="board">
+      <article class="direction a">
+        <div class="dir-head"><div class="dir-title"><span class="letter">A</span><div><h2>托盘小面板</h2><div class="subtitle">随手看、随手复制，几乎不占桌面</div></div></div><div class="note">适合把它当“系统能力”，而不是一款要长期盯着的应用。</div></div>
+        <div class="window">
+          <div class="titlebar"><strong>AirDropPlus</strong><span class="window-buttons"><i></i><i></i></span></div>
+          <div class="connection"><div class="identity"><div class="phone">PHONE</div><div><div class="status"><span class="dot"></span><strong>iPhone 已连接</strong></div><div class="tiny">192.168.1.50 · 刚刚</div></div></div><button class="sketch-btn">断开</button></div>
+          <div class="tabs"><div class="tab active">文字 10</div><div class="tab">图片 6</div><div class="tab">文件</div></div>
+          <div class="list">
+            <div class="clip pinned"><p>项目 UI 先画几个原型图，我来选。</p><div class="clip-foot"><span class="tiny">置顶 · 08:31</span><span class="actions"><span class="mini">复制</span><span class="mini">删</span></span></div></div>
+            <div class="clip"><p>手机复制过来的第二条文字，最多显示两行……</p><div class="clip-foot"><span class="tiny">08:28</span><span class="actions"><span class="mini">复制</span><span class="mini">置顶</span><span class="mini">删</span></span></div></div>
+            <div class="clip"><p>192.168.1.50:53317</p><div class="clip-foot"><span class="tiny">昨天</span><span class="actions"><span class="mini">复制</span><span class="mini">置顶</span></span></div></div>
+          </div>
+          <div class="footerbar"><button class="sketch-btn">打开完整窗口</button><button class="sketch-btn primary">粘贴到电脑</button></div>
+          <span class="annotation">状态永远在第一屏</span>
+        </div>
+      </article>
+
+      <article class="direction b">
+        <div class="dir-head"><div class="dir-title"><span class="letter">B</span><div><h2>双栏工作台</h2><div class="subtitle">历史管理清楚，适合大量复制与整理</div></div></div><div class="note">左边管设备，中间找内容，右边处理当前条目。</div></div>
+        <div class="window">
+          <div class="titlebar"><strong>AirDropPlus Clipboard</strong><span class="window-buttons"><i></i><i></i><i></i></span></div>
+          <div class="workspace">
+            <aside class="side"><div class="side-card"><div class="phone-big">PHONE</div><div class="status"><span class="dot"></span><strong>在线</strong></div><div class="tiny">iPhone · 192.168.1.50</div><div class="tiny">最后活动：刚刚</div></div><div class="navitem active">文字历史　10</div><div class="navitem">图片历史　6</div><div class="navitem">接收文件　2</div><div class="navitem">连接设置</div></aside>
+            <section class="main"><div class="toolbar"><div class="search">搜索剪贴板……</div><button class="sketch-btn">筛选</button></div><div class="main-list"><div class="clip pinned"><p>项目 UI 先画几个原型图，我来选。</p><div class="clip-foot"><span class="tiny">置顶 · 08:31</span><span class="actions"><span class="mini">复制</span><span class="mini">删</span></span></div></div><div class="clip"><p>手机复制过来的第二条文字，最多显示三行，点击后在右侧看完整内容。</p><div class="clip-foot"><span class="tiny">08:28</span><span class="actions"><span class="mini">复制</span><span class="mini">置顶</span></span></div></div><div class="clip"><p>AirDropPlus-Go 本地地址与端口记录</p><div class="clip-foot"><span class="tiny">昨天</span><span class="actions"><span class="mini">复制</span></span></div></div></div></section>
+            <aside class="detail"><h3>当前内容</h3><div class="detail-text">项目 UI：<br />1. 显示手机连接状态<br />2. 最近文本剪贴板<br />3. 图片选择合适方式展示</div><div class="tiny">来自 iPhone · 08:31</div><div class="detail-actions"><button class="sketch-btn primary">复制到 Windows</button><button class="sketch-btn">置顶这一条</button><button class="sketch-btn">删除</button></div></aside>
+          </div>
+          <span class="annotation">大窗口更适合“管理”</span>
+        </div>
+      </article>
+
+      <article class="direction c">
+        <div class="dir-head"><div class="dir-title"><span class="letter">C</span><div><h2>统一时间流</h2><div class="subtitle">文字、图片和文件按发生顺序混在一起</div></div></div><div class="note">不用先判断内容类型，回忆“什么时候复制的”就能找到。</div></div>
+        <div class="window">
+          <div class="titlebar"><strong>AirDropPlus Timeline</strong><span class="window-buttons"><i></i><i></i><i></i></span></div>
+          <div class="top-status"><div class="device-line"><div class="status"><span class="dot"></span><strong>iPhone 在线</strong></div><span class="tiny">192.168.1.50</span><span class="tiny">最后同步：刚刚</span></div><button class="sketch-btn">设备详情</button></div>
+          <div class="stream-tools"><div class="search">搜索全部历史……</div><button class="sketch-btn primary">全部</button><button class="sketch-btn">文字</button><button class="sketch-btn">图片</button></div>
+          <div class="timeline">
+            <div class="event"><span class="time">08:31</span><div class="clip event-row"><div><p>项目 UI 先画几个原型图，我来选。</p><span class="tiny">文字 · 来自 iPhone</span></div><span class="actions"><span class="mini">复制</span><span class="mini">置顶</span><span class="mini">删</span></span></div></div>
+            <div class="event"><span class="time">08:29</span><div class="clip image-event"><div class="photo">IMAGE 3024×4032</div><div><strong>照片</strong><div class="caption">IMG_4821.PNG · 2.8 MB</div><div class="actions" style="margin-top:10px"><span class="mini">查看大图</span><span class="mini">复制图片</span><span class="mini">删</span></div></div></div></div>
+            <div class="event"><span class="time">08:28</span><div class="clip event-row"><div><p>手机复制过来的第二条文字……</p><span class="tiny">文字 · 来自 iPhone</span></div><span class="actions"><span class="mini">复制</span><span class="mini">删</span></span></div></div>
+            <div class="event"><span class="time">昨天</span><div class="clip event-row"><div><p>report.pdf</p><span class="tiny">文件 · 4.2 MB</span></div><span class="actions"><span class="mini">打开</span><span class="mini">文件夹</span></span></div></div>
+          </div>
+          <span class="annotation">一个列表解决三种内容</span>
+        </div>
+      </article>
+
+      <article class="direction d">
+        <div class="dir-head"><div class="dir-title"><span class="letter">D</span><div><h2>图片画板 + 文字侧栏</h2><div class="subtitle">图片是主角，文字保持随手可取</div></div></div><div class="note">如果你经常在手机和电脑之间传截图、照片，这个效率最高。</div></div>
+        <div class="window">
+          <div class="titlebar"><div class="status"><span class="dot"></span><strong>iPhone 已连接</strong><span class="tiny">· 刚刚</span></div><span class="window-buttons"><i></i><i></i><i></i></span></div>
+          <div class="gallery-layout">
+            <aside class="text-dock"><div class="dock-head"><strong>最近文字</strong><span class="tiny">10 条</span></div><div class="dock-list"><div class="clip pinned"><p>项目 UI 先画几个原型图，我来选。</p><div class="clip-foot"><span class="tiny">08:31</span><span class="mini">复制</span></div></div><div class="clip"><p>手机复制过来的第二条文字……</p><div class="clip-foot"><span class="tiny">08:28</span><span class="mini">复制</span></div></div><div class="clip"><p>192.168.1.50:53317</p><div class="clip-foot"><span class="tiny">昨天</span><span class="mini">复制</span></div></div></div><button class="sketch-btn" style="width:100%;margin-top:9px">查看全部文字</button></aside>
+            <section class="gallery"><div class="gallery-head"><h3>最近图片</h3><div><button class="sketch-btn">按日期</button> <button class="sketch-btn">选择</button></div></div><div class="gallery-body"><div class="hero"><div class="photo">LARGE IMAGE PREVIEW<br />点击查看原图</div><div class="caption">IMG_4821.PNG · 今天 08:29　[复制图片] [保存]</div></div><div class="thumbs"><div class="photo">IMG 01</div><div class="photo">IMG 02</div><div class="photo">IMG 03</div><div class="photo">IMG 04</div><div class="photo">+ 2</div></div></div><div class="dropzone">接收到的文件放这里 · 点击打开文件夹</div></section>
+          </div>
+          <span class="annotation">图片缩略图比文件名有用</span>
+        </div>
+      </article>
+    </section>
+  </main>
+</body>
+</html>
