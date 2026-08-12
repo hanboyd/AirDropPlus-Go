@@ -21,6 +21,7 @@ Go HTTP 服务
 - Win32 托盘图标作为空闲状态；提示文字显示 iPhone 最近连接状态。
 - 弹窗使用 Win32/GDI 和 Windows 11 原生圆角，不嵌入 Chromium、Electron 或 WebView。
 - 进程使用 Per-Monitor DPI Awareness V2；窗口、字体、线条、图片与命中区域按当前显示器 DPI 直接重绘，避免 Windows 位图拉伸导致高缩放屏幕模糊。
+- 字体系统仅在品牌标题使用 Charter；UI 标题使用 Microsoft YaHei UI 600，正文和中英文混排使用 Microsoft YaHei UI 400。正文、次要信息和弱提示分别不浅于 `#333333`、`#666666`、`#707070`，边框使用不透明 `#D8D8D8`，避免细衬线和低对比抗锯齿造成视觉雾化。
 - `AddClipboardFormatListener` 事件驱动监听 PC 剪贴板，不做定时轮询。
 - 界面每页 3 条、最多 2 页。长文本进入原生只读滚动文本框，可查看并复制完整内容。
 - 第 7 条起的旧记录同步追加到按日期划分的 Markdown；文字保留全文，图片保存为 PNG 并由文档相对引用，文件内容保存路径清单。

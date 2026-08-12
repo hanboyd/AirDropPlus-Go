@@ -298,7 +298,7 @@ func (a *app) create() error {
 	if a.edit == 0 {
 		return fmt.Errorf("create expanded text view")
 	}
-	a.editFont = font(-16, 400, "TsangerJinKai02")
+	a.editFont = font(-15, 400, "Microsoft YaHei UI")
 	procSendMessage.Call(a.edit, wmSetFont, a.editFont, 1)
 	procShowWindow.Call(a.edit, swHide)
 	corner := uint32(dwmwcRound)
@@ -408,7 +408,7 @@ func (a *app) popupProc(message uint32, wparam, lparam uintptr) uintptr {
 			if a.editFont != 0 {
 				procDeleteObject.Call(a.editFont)
 			}
-			a.editFont = font(-16, 400, "TsangerJinKai02")
+			a.editFont = font(-15, 400, "Microsoft YaHei UI")
 			procSendMessage.Call(a.edit, wmSetFont, a.editFont, 1)
 			a.thumbnails = make(map[uint64]thumbnail)
 			procInvalidateRect.Call(a.popup, 0, 1)
@@ -554,17 +554,19 @@ func (a *app) paint() {
 	var ps paintstruct
 	hdc, _, _ := procBeginPaint.Call(a.popup, uintptr(unsafe.Pointer(&ps)))
 	defer procEndPaint.Call(a.popup, uintptr(unsafe.Pointer(&ps)))
-	fill(hdc, rect{0, 0, 390, 548}, rgb(248, 247, 243))
+	fill(hdc, rect{0, 0, 390, 548}, rgb(247, 247, 245))
 	procSetBkMode.Call(hdc, transparent)
 	fontTitle := font(-22, 600, "Bitstream Charter")
-	fontCN := font(-16, 400, "TsangerJinKai02")
-	fontSmall := font(-13, 400, "TsangerJinKai02")
+	fontHeading := font(-16, 600, "Microsoft YaHei UI")
+	fontBody := font(-15, 400, "Microsoft YaHei UI")
+	fontSmall := font(-13, 400, "Microsoft YaHei UI")
 	defer procDeleteObject.Call(fontTitle)
-	defer procDeleteObject.Call(fontCN)
+	defer procDeleteObject.Call(fontHeading)
+	defer procDeleteObject.Call(fontBody)
 	defer procDeleteObject.Call(fontSmall)
 	a.hits = nil
 	selectFont(hdc, fontTitle)
-	text(hdc, "AirDropPlus", 18, 16, 220, 48, rgb(25, 25, 27), dtLeft|dtSingleLine)
+	text(hdc, "AirDropPlus", 18, 16, 220, 48, rgb(24, 24, 24), dtLeft|dtSingleLine)
 	state := "未连接"
 	detail := "等待 iPhone"
 	online := a.tracker.Online()
@@ -573,16 +575,16 @@ func (a *app) paint() {
 		state = "iPhone 已连接"
 		detail = s.IP + " · " + relative(s.LastSeen)
 	}
-	fillRound(hdc, rect{18, 56, 372, 116}, 14, rgb(255, 255, 255), rgb(224, 223, 218))
+	fillRound(hdc, rect{18, 56, 372, 116}, 14, rgb(255, 255, 255), rgb(216, 216, 216))
 	dotColor := rgb(150, 150, 150)
 	if online {
 		dotColor = rgb(67, 181, 103)
 	}
 	fillRound(hdc, rect{34, 75, 48, 89}, 7, dotColor, dotColor)
-	selectFont(hdc, fontCN)
-	text(hdc, state, 58, 68, 245, 91, rgb(28, 28, 30), dtLeft|dtSingleLine)
+	selectFont(hdc, fontHeading)
+	text(hdc, state, 58, 68, 245, 91, rgb(24, 24, 24), dtLeft|dtSingleLine)
 	selectFont(hdc, fontSmall)
-	text(hdc, detail, 58, 90, 245, 107, rgb(110, 109, 105), dtLeft|dtSingleLine)
+	text(hdc, detail, 58, 90, 245, 107, rgb(102, 102, 102), dtLeft|dtSingleLine)
 	share := a.bridge.SharingPC()
 	toggleColor := rgb(215, 214, 209)
 	shareText := "PC 剪贴板共享：关"
@@ -597,10 +599,10 @@ func (a *app) paint() {
 	}
 	text(hdc, shareText, 264, 77, 349, 98, textColor, dtCenter|dtVCenter|dtSingleLine)
 	a.hits = append(a.hits, hit{rect{250, 66, 365, 108}, "toggle", 0})
-	selectFont(hdc, fontCN)
-	text(hdc, "最近剪贴板", 18, 132, 220, 157, rgb(28, 28, 30), dtLeft|dtSingleLine)
+	selectFont(hdc, fontHeading)
+	text(hdc, "最近剪贴板", 18, 132, 220, 157, rgb(24, 24, 24), dtLeft|dtSingleLine)
 	selectFont(hdc, fontSmall)
-	text(hdc, "两页可浏览 · 超出自动归档", 188, 136, 372, 154, rgb(120, 118, 113), dtRight|dtSingleLine)
+	text(hdc, "两页可浏览 · 超出自动归档", 188, 136, 372, 154, rgb(102, 102, 102), dtRight|dtSingleLine)
 	y := 166
 	items := a.store.List()
 	validThumbs := make(map[uint64]struct{}, len(items))
@@ -615,7 +617,7 @@ func (a *app) paint() {
 	if a.expanded != 0 {
 		for _, item := range items {
 			if item.ID == a.expanded && item.Content.Kind == clipboard.Text {
-				a.paintExpanded(hdc, item, fontCN, fontSmall)
+				a.paintExpanded(hdc, item, fontHeading, fontSmall)
 				return
 			}
 		}
@@ -632,27 +634,28 @@ func (a *app) paint() {
 	end := min(len(items), start+pageSize)
 	visible := items[start:end]
 	if len(items) == 0 {
-		fillRound(hdc, rect{18, int32(y), 372, int32(y + 78)}, 12, rgb(255, 255, 255), rgb(229, 227, 221))
-		text(hdc, "暂无内容。收到后点击托盘图标查看。", 34, int32(y+24), 356, int32(y+55), rgb(125, 122, 116), dtCenter|dtVCenter|dtSingleLine)
+		fillRound(hdc, rect{18, int32(y), 372, int32(y + 78)}, 12, rgb(255, 255, 255), rgb(216, 216, 216))
+		selectFont(hdc, fontBody)
+		text(hdc, "暂无内容。收到后点击托盘图标查看。", 34, int32(y+24), 356, int32(y+55), rgb(102, 102, 102), dtCenter|dtVCenter|dtSingleLine)
 	}
 	for _, item := range visible {
 		h := 78
 		card := rect{18, int32(y), 372, int32(y + h)}
-		fillRound(hdc, card, 12, rgb(255, 255, 255), rgb(229, 227, 221))
-		selectFont(hdc, fontCN)
+		fillRound(hdc, card, 12, rgb(255, 255, 255), rgb(216, 216, 216))
+		selectFont(hdc, fontBody)
 		if item.Content.Kind == clipboard.Image {
 			a.drawImageCard(hdc, item.ID, item.Content.PNG, 30, int32(y+10), 112, int32(y+60))
-			text(hdc, "图片", 126, int32(y+13), 250, int32(y+36), rgb(28, 28, 30), dtLeft|dtSingleLine)
+			text(hdc, "图片", 126, int32(y+13), 250, int32(y+36), rgb(51, 51, 51), dtLeft|dtSingleLine)
 			selectFont(hdc, fontSmall)
-			text(hdc, sourceLabel(item.Source)+" · "+relative(item.Created), 126, int32(y+37), 260, int32(y+57), rgb(115, 112, 107), dtLeft|dtSingleLine)
+			text(hdc, sourceLabel(item.Source)+" · "+relative(item.Created), 126, int32(y+37), 260, int32(y+57), rgb(102, 102, 102), dtLeft|dtSingleLine)
 		} else {
 			body := item.Content.Text
 			if item.Content.Kind == clipboard.Files {
 				body = strings.Join(item.Content.Files, ", ")
 			}
-			text(hdc, body, 32, int32(y+12), 350, int32(y+44), rgb(28, 28, 30), dtLeft|dtEndEllipsis)
+			text(hdc, body, 32, int32(y+12), 350, int32(y+44), rgb(51, 51, 51), dtLeft|dtEndEllipsis)
 			selectFont(hdc, fontSmall)
-			text(hdc, sourceLabel(item.Source)+" · "+relative(item.Created), 32, int32(y+49), 205, int32(y+68), rgb(115, 112, 107), dtLeft|dtSingleLine)
+			text(hdc, sourceLabel(item.Source)+" · "+relative(item.Created), 32, int32(y+49), 205, int32(y+68), rgb(102, 102, 102), dtLeft|dtSingleLine)
 		}
 		pin := "置顶"
 		if item.Pinned {
@@ -671,14 +674,14 @@ func (a *app) paint() {
 	selectFont(hdc, fontSmall)
 	if pageCount > 1 {
 		text(hdc, "‹ 上一页", 92, 488, 162, 511, rgb(41, 104, 171), dtCenter|dtSingleLine)
-		text(hdc, fmt.Sprintf("%d / %d", a.page+1, pageCount), 164, 488, 226, 511, rgb(105, 103, 98), dtCenter|dtSingleLine)
+		text(hdc, fmt.Sprintf("%d / %d", a.page+1, pageCount), 164, 488, 226, 511, rgb(102, 102, 102), dtCenter|dtSingleLine)
 		text(hdc, "下一页 ›", 228, 488, 298, 511, rgb(41, 104, 171), dtCenter|dtSingleLine)
 		a.hits = append(a.hits, hit{rect{80, 480, 166, 516}, "prev", 0}, hit{rect{224, 480, 310, 516}, "next", 0})
 	} else {
-		text(hdc, "1 / 1", 164, 488, 226, 511, rgb(125, 122, 116), dtCenter|dtSingleLine)
+		text(hdc, "1 / 1", 164, 488, 226, 511, rgb(112, 112, 112), dtCenter|dtSingleLine)
 	}
 	selectFont(hdc, fontSmall)
-	text(hdc, "点击托盘图标打开 · 空闲时自动隐藏", 18, 520, 372, 542, rgb(125, 122, 116), dtCenter|dtSingleLine)
+	text(hdc, "点击托盘图标打开 · 空闲时自动隐藏", 18, 520, 372, 542, rgb(112, 112, 112), dtCenter|dtSingleLine)
 }
 
 func (a *app) click(x, y int32) {
@@ -720,12 +723,12 @@ func (a *app) click(x, y int32) {
 	}
 }
 
-func (a *app) paintExpanded(hdc uintptr, item history.Item, fontCN, fontSmall uintptr) {
-	selectFont(hdc, fontCN)
-	text(hdc, "完整文本", 18, 165, 180, 188, rgb(28, 28, 30), dtLeft|dtSingleLine)
+func (a *app) paintExpanded(hdc uintptr, item history.Item, fontHeading, fontSmall uintptr) {
+	selectFont(hdc, fontHeading)
+	text(hdc, "完整文本", 18, 165, 180, 188, rgb(24, 24, 24), dtLeft|dtSingleLine)
 	selectFont(hdc, fontSmall)
 	stamp := item.Created.Format("2006-01-02 15:04:05")
-	text(hdc, sourceLabel(item.Source)+" · "+stamp, 178, 168, 372, 188, rgb(110, 108, 103), dtRight|dtSingleLine)
+	text(hdc, sourceLabel(item.Source)+" · "+stamp, 178, 168, 372, 188, rgb(102, 102, 102), dtRight|dtSingleLine)
 	procMoveWindow.Call(a.edit, uintptr(a.px(18)), uintptr(a.px(194)), uintptr(a.px(354)), uintptr(a.px(278)), 1)
 	if a.editItem != item.ID {
 		body := strings.ReplaceAll(strings.ReplaceAll(item.Content.Text, "\r\n", "\n"), "\n", "\r\n")
@@ -737,7 +740,7 @@ func (a *app) paintExpanded(hdc uintptr, item history.Item, fontCN, fontSmall ui
 	text(hdc, "收起", 116, 486, 174, 510, rgb(41, 104, 171), dtCenter|dtSingleLine)
 	text(hdc, "复制全文", 216, 486, 282, 510, rgb(41, 104, 171), dtCenter|dtSingleLine)
 	a.hits = append(a.hits, hit{rect{104, 478, 184, 516}, "collapse", item.ID}, hit{rect{204, 478, 294, 516}, "copy", item.ID})
-	text(hdc, "完整内容可滚动 · 归档文档含时间戳", 18, 520, 372, 542, rgb(125, 122, 116), dtCenter|dtSingleLine)
+	text(hdc, "完整内容可滚动 · 归档文档含时间戳", 18, 520, 372, 542, rgb(112, 112, 112), dtCenter|dtSingleLine)
 }
 
 func isLongText(s string) bool {
