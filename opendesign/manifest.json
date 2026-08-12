@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-12T10:05:00+08:00",
+  "generated": "2026-08-12T18:35:00+08:00",
   "sections": [
     {
       "id": "mockups",
@@ -19,6 +19,10 @@
             {
               "label": "AirDropPlus-Go UI — Tray Icon States",
               "path": "mockups/airdropplus-ui-exploration/tray-icon-states.html"
+            },
+            {
+              "label": "AirDropPlus-Go UI — Clipboard Pagination",
+              "path": "mockups/airdropplus-ui-exploration/clipboard-pagination.html"
             }
           ]
         }

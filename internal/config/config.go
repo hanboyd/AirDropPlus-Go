@@ -33,7 +33,7 @@ func Default(baseDir string) Config {
 		MaxUploadBytes:        DefaultMaxUploadBytes,
 		ImageUploadClipboard:  true,
 		LegacyShortcutVersion: "1.5",
-		HistoryLimit:          10,
+		HistoryLimit:          6,
 		SharePCClipboard:      true,
 	}
 }

@@ -4,12 +4,15 @@
 
 已通过：
 
-- `go test ./...`：全部通过；覆盖配置、鉴权、双向文字/图片剪贴板模拟、历史去重和 64 MiB 内存上限、文件上传、重名、文件引用下载、DIB/DIBV5/Alpha 转换。
+- `go test ./...`：全部通过；覆盖配置、鉴权、双向文字/图片剪贴板模拟、两页历史淘汰、Markdown/PNG 归档、时间戳、历史去重和 64 MiB 内存上限、文件上传、重名、文件引用下载、DIB/DIBV5/Alpha 转换。
 - `go vet -unsafeptr=false ./...`：通过。只排除 Win32 `GlobalLock` 必需的指针转换启发式告警，其他分析器保持启用。
-- `scripts/Build.ps1 -Version 0.2.1` 成功生成原生 Windows GUI 构建，`/healthz` 返回 `0.2.1`；EXE SHA-256：`26D6C54A3183E45A0AEE1E168EDD46154B2D144A5F4AE176FF113517C4F08D73`。
+- `scripts/Build.ps1 -Version 0.3.0` 成功生成原生 Windows GUI 构建，`/healthz` 返回 `0.3.0`；EXE SHA-256：`E484916A49556E30820B9D8251C887E11DE25BF1A2D2A5FDB085308E0DF57F9E`。
+- 连续模拟 7 条带鉴权 iPhone 文字发送：界面保留最新 6 条，第 1 条写入当日 Markdown，第 7 条未提前归档；归档标题含 RFC 3339 纳秒时间戳和 `+08:00` 时区。验证生成物已清除后重启。
+- 归档写入失败路径测试：文档未成功落盘时旧条目不会从内存列表淘汰，避免静默丢失。
 - 真实隐藏进程启动成功；无 token 请求返回 401；带 token 的 iPhone → PC 文字与 PNG 写入成功；PC → iPhone 鉴权读取返回相同文字与有效 PNG。
 - 托盘 UI 使用 Win32/GDI、系统剪贴板事件和进程内通知；不包含 Electron、Chromium 或 WebView。手机侧最新一次写入只将托盘状态灯切为绿色，不展开面板；点击图标后复位灰灯并展开，面板 10 秒空闲后隐藏。
 - 文字和图片往返测试后 5 秒采样：CPU 时间增加 0.031 秒，工作集 25.2 MiB，私有内存 52.4 MiB。重启清空历史后的纯空闲 5 秒采样：CPU 时间增加 0 秒，工作集 15.6 MiB，私有内存 46.8 MiB，11 个线程。
+- 0.3.0 归档验证清理并重启后的纯空闲 5 秒采样：CPU 时间增加 0 秒，工作集 15.3 MiB，私有内存 46.8 MiB，8 个线程。
 - Charter 字体从 `dist/fonts` 以 `FR_PRIVATE` 方式加载，退出时移除，不注册或修改 Windows 系统字体。
 - 管理脚本：隐藏启动、状态查询、重复启动保护、精确停止、停止后非运行状态均验证通过。
 - PowerShell 解析器：`scripts/*.ps1` 全部无语法错误。

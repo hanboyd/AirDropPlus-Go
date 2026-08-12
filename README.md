@@ -8,7 +8,8 @@
 - iPhone → Windows 剪贴板：文字、PNG 图片
 - Windows → iPhone 剪贴板：文字、图片、资源管理器中复制的文件
 - 兼容 AirDropPlus 1.5 已签名 iOS 快捷指令的 `/file`、`/clipboard` 接口
-- Windows 11 原生托盘小面板：最近 10 条剪贴板、图片缩略图和连接状态
+- Windows 11 原生托盘小面板：每页 3 条、最多 2 页，支持长文本完整展开和图片缩略图
+- 第 7 条起的旧内容自动归档到 `dist/data/clipboard-archive/YYYY-MM-DD.md`；图片另存到 `assets/`，每条均带精确时间戳
 - 双状态托盘图标：灰灯表示待命，手机最新一次 `Send` 后切为绿灯；点击图标确认并复位，不自动展开
 - PC 剪贴板共享开关；iPhone 使用 `Receive` 拉取当前 PC 文字、图片或文件
 - 独立的新 `/api/v1` 接口
@@ -18,7 +19,7 @@
 
 ## 目录原则
 
-此目录是项目的唯一源码位置。运行期私密配置、接收文件与构建产物也位于此目录下，但已被 `.gitignore` 排除：
+此目录是项目的唯一源码位置。运行期私密配置、剪贴板归档、接收文件与构建产物也位于此目录下，但已被 `.gitignore` 排除：
 
 ```text
 AirDropPlus-Go/
@@ -30,6 +31,7 @@ AirDropPlus-Go/
 ├─ scripts/             构建、后台启动、精确停止
 └─ dist/                Windows 可执行文件与运行期内容
    ├─ data/             首次运行生成的私密配置
+   │  └─ clipboard-archive/  超出两页的剪贴板 Markdown 与图片
    └─ received/         默认接收目录
 ```
 
@@ -113,6 +115,7 @@ X-AirDropPlus-Token: <token>
 
 - 这是可信家庭/个人局域网工具，不应直接映射到公网。
 - token 只存在于被忽略的运行期配置与 iPhone 快捷指令中，不提交到 GitHub。
+- 剪贴板归档是本机明文 Markdown/PNG，位于被 Git 忽略的 `dist/data/clipboard-archive/`；其中可能包含敏感内容，应按个人文档保护。
 - Windows 文件下载只接受服务端刚为当前剪贴板文件签发的随机引用，不接受任意本机路径；引用 10 分钟后过期。
 - HTTP 在局域网内未加密；如果网络中存在不可信设备，应改用可信热点或在系统层使用 VPN。
 - Windows 防火墙第一次启动时可能请求允许访问；只需允许“专用网络”，不要允许公用网络。

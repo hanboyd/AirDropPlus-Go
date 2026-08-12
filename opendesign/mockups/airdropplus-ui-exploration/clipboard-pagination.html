@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AirDropPlus-Go — Clipboard Pagination</title>
+  <style>
+    :root{--paper:#f8f7f3;--card:#fff;--ink:#1c1c1e;--sub:#74716b;--line:#e5e2da;--blue:#2968ab;--green:#43b567}
+    *{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;background:#e9e6de;color:var(--ink);font-family:"TsangerJinKai02","Microsoft YaHei",serif}.panel{width:390px;height:548px;padding:16px 18px 0;background:var(--paper);border:1px solid #d8d4ca;border-radius:20px;box-shadow:0 22px 60px #3b414a26;overflow:hidden}.brand{font-family:"Bitstream Charter",Georgia,serif;font-size:22px;font-weight:700}.status{height:60px;margin-top:8px;padding:12px 16px;display:flex;align-items:center;gap:10px;background:#fff;border:1px solid var(--line);border-radius:14px}.dot{width:14px;height:14px;border-radius:50%;background:var(--green)}.status strong{display:block;font-weight:500}.status small{display:block;color:var(--sub)}.toggle{margin-left:auto;padding:7px 11px;color:#fff;background:var(--blue);border-radius:14px;font-size:12px}.section{height:42px;display:flex;align-items:center;justify-content:space-between}.section strong{font-weight:500}.section span{color:var(--sub);font-size:12px}.list{height:316px}.card{position:relative;height:94px;margin-bottom:9px;padding:12px 14px;background:var(--card);border:1px solid var(--line);border-radius:12px}.preview{height:37px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}.meta{margin-top:4px;color:var(--sub);font-size:12px}.actions{position:absolute;right:10px;bottom:8px;display:flex;gap:14px}.actions button,.pager button,.detail-actions button{padding:0;border:0;color:var(--blue);background:none;font:13px inherit;cursor:pointer}.actions .delete{color:#ba3730}.pager{height:29px;display:flex;align-items:center;justify-content:center;gap:26px;color:var(--sub);font-size:13px}.footer{text-align:center;color:#7d7a74;font-size:12px}.detail{display:none;height:387px}.detail.show{display:block}.list.hide,.pager.hide{display:none}.detail-head{height:34px;display:flex;align-items:center;justify-content:space-between}.detail-head span{color:var(--sub);font-size:12px}.fulltext{width:100%;height:278px;padding:12px;border:1px solid var(--line);border-radius:10px;resize:none;background:#fff;color:var(--ink);font:15px/1.65 "TsangerJinKai02","Microsoft YaHei",serif}.detail-actions{height:48px;display:flex;align-items:center;justify-content:center;gap:50px}.archive-note{text-align:center;color:var(--sub);font-size:12px}@media(max-width:430px){body{place-items:start center;background:var(--paper)}.panel{width:100%;border:0;border-radius:0;box-shadow:none}}
+  </style>
+</head>
+<body>
+  <main class="panel">
+    <div class="brand">AirDropPlus</div>
+    <section class="status"><i class="dot"></i><div><strong>iPhone 已连接</strong><small>192.168.1.50 · 刚刚</small></div><span class="toggle">PC 共享：开</span></section>
+    <header class="section"><strong id="heading">最近剪贴板</strong><span>两页可浏览 · 超出自动归档</span></header>
+    <section class="list" id="list"></section>
+    <nav class="pager" id="pager"><button id="prev">‹ 上一页</button><span id="pageNo">1 / 2</span><button id="next">下一页 ›</button></nav>
+    <section class="detail" id="detail"><div class="detail-head"><strong>完整文本</strong><span id="stamp"></span></div><textarea class="fulltext" id="fulltext" readonly></textarea><div class="detail-actions"><button id="collapse">收起</button><button id="copy">复制全文</button></div><div class="archive-note">完整内容可滚动 · 归档文档含时间戳</div></section>
+    <div class="footer">点击托盘图标打开 · 空闲时自动隐藏</div>
+  </main>
+  <script>
+    const rows=[
+      {text:"这是一段很长的剪贴板文本。它不会再被永久截断；点击展开后，会进入完整文本视图，并可使用滚动条阅读全部内容。\n\n第一部分：完整展开保留原始段落和换行，不用省略号替代正文。\n\n第二部分：展开视图使用原生只读滚动文本框，用户可以从第一行一直阅读到最后一行。\n\n第三部分：当前面板只承载两个分页，每页三条内容，长文本不会挤占或破坏分页结构。\n\n第四部分：当第七条新内容进入时，最旧记录会移出界面，但不会丢失，而是写入当天的 Markdown 文档。\n\n第五部分：归档标题包含日期、时间、纳秒和时区，能够准确追溯剪贴板内容的产生时间。\n\n第六部分：如果归档内容是图片，PNG 会进入 assets 文件夹，Markdown 使用相对路径引用。\n\n第七部分：这段额外文本用于确保原型确实出现纵向滚动条，而不只是视觉上声称可以滚动。\n\n第八部分：滚动到底部后仍可使用“复制全文”按钮取回所有文字。这里是示例正文的最后一行。",time:"2026-08-12 18:34:20",source:"来自 iPhone"},
+      {text:"明天下午三点提醒我确认版本发布。",time:"2026-08-12 18:31:08",source:"来自 PC"},
+      {text:"https://github.com/hanboyd/AirDropPlus-Go",time:"2026-08-12 18:28:42",source:"来自 iPhone"},
+      {text:"第二页第一条内容",time:"2026-08-12 18:20:16",source:"来自 PC"},
+      {text:"项目验证记录已更新。",time:"2026-08-12 18:17:03",source:"来自 PC"},
+      {text:"超过本条之后的旧内容进入文档归档。",time:"2026-08-12 18:12:55",source:"来自 iPhone"}
+    ];
+    let page=0;const list=document.querySelector("#list"),pager=document.querySelector("#pager"),detail=document.querySelector("#detail"),heading=document.querySelector("#heading");
+    function render(){list.innerHTML=rows.slice(page*3,page*3+3).map((r,i)=>`<article class="card"><div class="preview">${r.text}</div><div class="meta">${r.source} · ${r.time}</div><div class="actions">${r.text.length>55?`<button data-expand="${page*3+i}">展开</button>`:""}<button>复制</button><button>置顶</button><button class="delete">删除</button></div></article>`).join("");document.querySelector("#pageNo").textContent=`${page+1} / 2`;list.querySelectorAll("[data-expand]").forEach(b=>b.onclick=()=>expand(rows[+b.dataset.expand]));}
+    function expand(r){list.classList.add("hide");pager.classList.add("hide");detail.classList.add("show");heading.textContent="完整文本";document.querySelector("#stamp").textContent=`${r.source} · ${r.time}`;document.querySelector("#fulltext").value=r.text;}
+    document.querySelector("#collapse").onclick=()=>{detail.classList.remove("show");list.classList.remove("hide");pager.classList.remove("hide");heading.textContent="最近剪贴板";};document.querySelector("#prev").onclick=()=>{page=Math.max(0,page-1);render()};document.querySelector("#next").onclick=()=>{page=Math.min(1,page+1);render()};document.querySelector("#copy").onclick=()=>navigator.clipboard?.writeText(document.querySelector("#fulltext").value);render();
+  </script>
+</body>
+</html>

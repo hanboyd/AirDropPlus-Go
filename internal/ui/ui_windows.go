@@ -16,6 +16,7 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	"unicode/utf8"
 	"unsafe"
 
 	"github.com/hanboyd/AirDropPlus-Go/internal/bridge"
@@ -29,6 +30,7 @@ const (
 	wmPaint                     = 0x000F
 	wmClose                     = 0x0010
 	wmTimer                     = 0x0113
+	wmSetFont                   = 0x0030
 	wmLButtonUp                 = 0x0202
 	wmApp                       = 0x8000
 	wmTray                      = wmApp + 1
@@ -36,6 +38,13 @@ const (
 	wmDevice                    = wmApp + 3
 	wmClipboardUpdate           = 0x031D
 	wsPopup                     = 0x80000000
+	wsChild                     = 0x40000000
+	wsVisible                   = 0x10000000
+	wsVScroll                   = 0x00200000
+	wsBorder                    = 0x00800000
+	esMultiline                 = 0x0004
+	esAutoVScroll               = 0x0040
+	esReadOnly                  = 0x0800
 	wsExTopmost                 = 0x00000008
 	wsExToolwindow              = 0x00000080
 	swHide                      = 0
@@ -77,6 +86,9 @@ var (
 	procPostMessage                   = user32.NewProc("PostMessageW")
 	procShowWindow                    = user32.NewProc("ShowWindow")
 	procSetWindowPos                  = user32.NewProc("SetWindowPos")
+	procMoveWindow                    = user32.NewProc("MoveWindow")
+	procSetWindowText                 = user32.NewProc("SetWindowTextW")
+	procSendMessage                   = user32.NewProc("SendMessageW")
 	procInvalidateRect                = user32.NewProc("InvalidateRect")
 	procBeginPaint                    = user32.NewProc("BeginPaint")
 	procEndPaint                      = user32.NewProc("EndPaint")
@@ -182,6 +194,8 @@ type app struct {
 	bridge       *bridge.Service
 	tracker      *device.Tracker
 	main, popup  uintptr
+	edit         uintptr
+	editFont     uintptr
 	hits         []hit
 	tray         notifyicondata
 	visible      bool
@@ -192,6 +206,9 @@ type app struct {
 	idleIcon     uintptr
 	receivedIcon uintptr
 	unread       bool
+	page         int
+	expanded     uint64
+	editItem     uint64
 }
 
 var current *app
@@ -258,6 +275,14 @@ func (a *app) create() error {
 	if a.popup == 0 {
 		return fmt.Errorf("create popup")
 	}
+	editClass, _ := syscall.UTF16PtrFromString("EDIT")
+	a.edit, _, _ = procCreateWindowEx.Call(0, uintptr(unsafe.Pointer(editClass)), 0, wsChild|wsVisible|wsVScroll|wsBorder|esMultiline|esAutoVScroll|esReadOnly, 18, 194, 354, 278, a.popup, 0, instance, 0)
+	if a.edit == 0 {
+		return fmt.Errorf("create expanded text view")
+	}
+	a.editFont = font(-16, 400, "TsangerJinKai02")
+	procSendMessage.Call(a.edit, wmSetFont, a.editFont, 1)
+	procShowWindow.Call(a.edit, swHide)
 	corner := uint32(dwmwcRound)
 	procDwmSetWindowAttribute.Call(a.popup, dwmwaWindowCornerPreference, uintptr(unsafe.Pointer(&corner)), unsafe.Sizeof(corner))
 	procAddClipboardFormatListener.Call(a.main)
@@ -277,6 +302,9 @@ func (a *app) cleanup() {
 	}
 	if a.receivedIcon != 0 {
 		procDestroyIcon.Call(a.receivedIcon)
+	}
+	if a.editFont != 0 {
+		procDeleteObject.Call(a.editFont)
 	}
 	for _, path := range a.privateFonts {
 		p, _ := syscall.UTF16PtrFromString(path)
@@ -320,6 +348,7 @@ func windowProc(hwnd uintptr, message uint32, wparam, lparam uintptr) uintptr {
 		return 0
 	case wmIncoming:
 		a.unread = true
+		a.page = 0
 		a.updateTray(false)
 		procInvalidateRect.Call(a.popup, 0, 1)
 		return 0
@@ -352,6 +381,9 @@ func (a *app) popupProc(message uint32, wparam, lparam uintptr) uintptr {
 		return 0
 	case wmTimer:
 		if wparam == 2 {
+			if a.expanded != 0 {
+				return 0
+			}
 			a.hide()
 			return 0
 		}
@@ -535,7 +567,7 @@ func (a *app) paint() {
 	selectFont(hdc, fontCN)
 	text(hdc, "最近剪贴板", 18, 132, 220, 157, rgb(28, 28, 30), dtLeft|dtSingleLine)
 	selectFont(hdc, fontSmall)
-	text(hdc, "仅保留本次运行的最近 10 条", 188, 136, 372, 154, rgb(120, 118, 113), dtRight|dtSingleLine)
+	text(hdc, "两页可浏览 · 超出自动归档", 188, 136, 372, 154, rgb(120, 118, 113), dtRight|dtSingleLine)
 	y := 166
 	items := a.store.List()
 	validThumbs := make(map[uint64]struct{}, len(items))
@@ -547,14 +579,30 @@ func (a *app) paint() {
 			delete(a.thumbnails, id)
 		}
 	}
+	if a.expanded != 0 {
+		for _, item := range items {
+			if item.ID == a.expanded && item.Content.Kind == clipboard.Text {
+				a.paintExpanded(hdc, item, fontCN, fontSmall)
+				return
+			}
+		}
+		a.expanded = 0
+		a.editItem = 0
+	}
+	procShowWindow.Call(a.edit, swHide)
+	const pageSize = 3
+	pageCount := max(1, min(2, (len(items)+pageSize-1)/pageSize))
+	if a.page >= pageCount {
+		a.page = pageCount - 1
+	}
+	start := a.page * pageSize
+	end := min(len(items), start+pageSize)
+	visible := items[start:end]
 	if len(items) == 0 {
 		fillRound(hdc, rect{18, int32(y), 372, int32(y + 78)}, 12, rgb(255, 255, 255), rgb(229, 227, 221))
-		text(hdc, "暂无内容。手机发送后会自动弹出。", 34, int32(y+24), 356, int32(y+55), rgb(125, 122, 116), dtCenter|dtVCenter|dtSingleLine)
+		text(hdc, "暂无内容。收到后点击托盘图标查看。", 34, int32(y+24), 356, int32(y+55), rgb(125, 122, 116), dtCenter|dtVCenter|dtSingleLine)
 	}
-	for i, item := range items {
-		if i >= 4 || y > 470 {
-			break
-		}
+	for _, item := range visible {
 		h := 78
 		if item.Content.Kind == clipboard.Image {
 			h = 96
@@ -580,11 +628,24 @@ func (a *app) paint() {
 		if item.Pinned {
 			pin = "取消置顶"
 		}
+		if item.Content.Kind == clipboard.Text && isLongText(item.Content.Text) {
+			text(hdc, "展开", 208, int32(y+h-27), 246, int32(y+h-8), rgb(41, 104, 171), dtCenter|dtSingleLine)
+			a.hits = append(a.hits, hit{rect{202, int32(y + h - 34), 250, int32(y + h)}, "expand", item.ID})
+		}
 		text(hdc, "复制", 252, int32(y+h-27), 286, int32(y+h-8), rgb(41, 104, 171), dtCenter|dtSingleLine)
 		text(hdc, pin, 288, int32(y+h-27), 334, int32(y+h-8), rgb(41, 104, 171), dtCenter|dtSingleLine)
 		text(hdc, "删除", 336, int32(y+h-27), 365, int32(y+h-8), rgb(186, 55, 48), dtCenter|dtSingleLine)
 		a.hits = append(a.hits, hit{rect{244, int32(y + h - 34), 288, int32(y + h)}, "copy", item.ID}, hit{rect{288, int32(y + h - 34), 337, int32(y + h)}, "pin", item.ID}, hit{rect{337, int32(y + h - 34), 374, int32(y + h)}, "delete", item.ID})
 		y += h + 9
+	}
+	selectFont(hdc, fontSmall)
+	if pageCount > 1 {
+		text(hdc, "‹ 上一页", 92, 488, 162, 511, rgb(41, 104, 171), dtCenter|dtSingleLine)
+		text(hdc, fmt.Sprintf("%d / %d", a.page+1, pageCount), 164, 488, 226, 511, rgb(105, 103, 98), dtCenter|dtSingleLine)
+		text(hdc, "下一页 ›", 228, 488, 298, 511, rgb(41, 104, 171), dtCenter|dtSingleLine)
+		a.hits = append(a.hits, hit{rect{80, 480, 166, 516}, "prev", 0}, hit{rect{224, 480, 310, 516}, "next", 0})
+	} else {
+		text(hdc, "1 / 1", 164, 488, 226, 511, rgb(125, 122, 116), dtCenter|dtSingleLine)
 	}
 	selectFont(hdc, fontSmall)
 	text(hdc, "点击托盘图标打开 · 空闲时自动隐藏", 18, 520, 372, 542, rgb(125, 122, 116), dtCenter|dtSingleLine)
@@ -607,11 +668,50 @@ func (a *app) click(x, y int32) {
 				a.store.Pin(h.id)
 			case "delete":
 				a.store.Delete(h.id)
+			case "expand":
+				a.expanded = h.id
+				a.editItem = 0
+			case "collapse":
+				a.expanded = 0
+				a.editItem = 0
+				procShowWindow.Call(a.edit, swHide)
+			case "prev":
+				if a.page > 0 {
+					a.page--
+				}
+			case "next":
+				if a.page < 1 {
+					a.page++
+				}
 			}
 			procInvalidateRect.Call(a.popup, 0, 1)
 			return
 		}
 	}
+}
+
+func (a *app) paintExpanded(hdc uintptr, item history.Item, fontCN, fontSmall uintptr) {
+	selectFont(hdc, fontCN)
+	text(hdc, "完整文本", 18, 165, 180, 188, rgb(28, 28, 30), dtLeft|dtSingleLine)
+	selectFont(hdc, fontSmall)
+	stamp := item.Created.Format("2006-01-02 15:04:05")
+	text(hdc, sourceLabel(item.Source)+" · "+stamp, 178, 168, 372, 188, rgb(110, 108, 103), dtRight|dtSingleLine)
+	procMoveWindow.Call(a.edit, 18, 194, 354, 278, 1)
+	if a.editItem != item.ID {
+		body := strings.ReplaceAll(strings.ReplaceAll(item.Content.Text, "\r\n", "\n"), "\n", "\r\n")
+		p, _ := syscall.UTF16PtrFromString(body)
+		procSetWindowText.Call(a.edit, uintptr(unsafe.Pointer(p)))
+		a.editItem = item.ID
+	}
+	procShowWindow.Call(a.edit, swShow)
+	text(hdc, "收起", 116, 486, 174, 510, rgb(41, 104, 171), dtCenter|dtSingleLine)
+	text(hdc, "复制全文", 216, 486, 282, 510, rgb(41, 104, 171), dtCenter|dtSingleLine)
+	a.hits = append(a.hits, hit{rect{104, 478, 184, 516}, "collapse", item.ID}, hit{rect{204, 478, 294, 516}, "copy", item.ID})
+	text(hdc, "完整内容可滚动 · 归档文档含时间戳", 18, 520, 372, 542, rgb(125, 122, 116), dtCenter|dtSingleLine)
+}
+
+func isLongText(s string) bool {
+	return utf8.RuneCountInString(s) > 60 || strings.ContainsAny(s, "\r\n")
 }
 
 func font(height int32, weight int32, name string) uintptr {

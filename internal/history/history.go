@@ -37,13 +37,22 @@ type Store struct {
 	bytes       int64
 	maxBytes    int64
 	subscribers map[chan Event]struct{}
+	onEvicted   func(Item) error
 }
 
-func New(limit int) *Store {
+type Option func(*Store)
+
+func WithEvicted(fn func(Item) error) Option { return func(s *Store) { s.onEvicted = fn } }
+
+func New(limit int, options ...Option) *Store {
 	if limit < 1 {
 		limit = 10
 	}
-	return &Store{limit: limit, maxBytes: 64 << 20, subscribers: make(map[chan Event]struct{})}
+	s := &Store{limit: limit, maxBytes: 64 << 20, subscribers: make(map[chan Event]struct{})}
+	for _, option := range options {
+		option(s)
+	}
+	return s
 }
 
 func (s *Store) Add(content clipboard.Content, source Source) Item {
@@ -132,6 +141,11 @@ func (s *Store) trimLocked() {
 			if !s.items[i].Pinned {
 				idx = i
 				break
+			}
+		}
+		if s.onEvicted != nil {
+			if err := s.onEvicted(s.items[idx]); err != nil {
+				return
 			}
 		}
 		s.bytes -= contentSize(s.items[idx].Content)

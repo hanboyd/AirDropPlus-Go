@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/hanboyd/AirDropPlus-Go/internal/archive"
 	"github.com/hanboyd/AirDropPlus-Go/internal/bridge"
 	"github.com/hanboyd/AirDropPlus-Go/internal/clipboard"
 	"github.com/hanboyd/AirDropPlus-Go/internal/config"
@@ -51,7 +52,15 @@ func run() int {
 	}
 	defer releaseInstance()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
-	store := history.New(cfg.HistoryLimit)
+	archiveWriter := archive.NewMarkdown(filepath.Join(filepath.Dir(*configPath), "clipboard-archive"))
+	visibleLimit := min(cfg.HistoryLimit, 6)
+	store := history.New(visibleLimit, history.WithEvicted(func(item history.Item) error {
+		if err := archiveWriter.Write(item); err != nil {
+			logger.Warn("clipboard archive failed", "error", err)
+			return err
+		}
+		return nil
+	}))
 	clip := bridge.New(clipboard.New(), store, cfg.SharePCClipboard)
 	tracker := device.New()
 	app, err := server.New(cfg, clip, logger, server.WithAuthenticatedObserver(tracker.Seen), server.WithVersion(version))
