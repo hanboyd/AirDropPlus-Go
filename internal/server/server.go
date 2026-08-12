@@ -231,7 +231,20 @@ func (s *Server) getClipboardLegacy(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) postClipboardLegacy(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, 4<<20)
+	r.Body = http.MaxBytesReader(w, r.Body, min(s.cfg.MaxUploadBytes, 64<<20))
+	if strings.HasPrefix(strings.ToLower(r.Header.Get("Content-Type")), "multipart/form-data") {
+		pngData, err := imageFromMultipart(r)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, response{false, err.Error(), nil})
+			return
+		}
+		if err := s.clip.WritePNG(pngData); err != nil {
+			writeJSON(w, http.StatusInternalServerError, response{false, err.Error(), nil})
+			return
+		}
+		writeJSON(w, http.StatusOK, response{true, "Send successful", nil})
+		return
+	}
 	if err := r.ParseForm(); err != nil {
 		writeJSON(w, http.StatusBadRequest, response{false, err.Error(), nil})
 		return
@@ -241,11 +254,63 @@ func (s *Server) postClipboardLegacy(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, response{false, "iPhone clipboard is empty", nil})
 		return
 	}
+	if pngData, ok := inlineImage(text); ok {
+		if err := s.clip.WritePNG(pngData); err != nil {
+			writeJSON(w, http.StatusInternalServerError, response{false, err.Error(), nil})
+			return
+		}
+		writeJSON(w, http.StatusOK, response{true, "Send successful", nil})
+		return
+	}
 	if err := s.clip.WriteText(text); err != nil {
 		writeJSON(w, http.StatusInternalServerError, response{false, err.Error(), nil})
 		return
 	}
 	writeJSON(w, http.StatusOK, response{true, "Send successful", nil})
+}
+
+func inlineImage(value string) ([]byte, bool) {
+	encoded := strings.TrimSpace(value)
+	if i := strings.Index(encoded, ","); strings.HasPrefix(strings.ToLower(encoded), "data:image/") && i >= 0 {
+		encoded = encoded[i+1:]
+	} else if len(encoded) < 128 {
+		return nil, false
+	}
+	raw, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		raw, err = base64.RawStdEncoding.DecodeString(encoded)
+	}
+	if err != nil {
+		return nil, false
+	}
+	pngData, err := imageAsPNG(bytes.NewReader(raw))
+	return pngData, err == nil
+}
+
+func imageFromMultipart(r *http.Request) ([]byte, error) {
+	mr, err := r.MultipartReader()
+	if err != nil {
+		return nil, fmt.Errorf("multipart image required: %w", err)
+	}
+	for {
+		part, err := mr.NextPart()
+		if errors.Is(err, io.EOF) {
+			return nil, errors.New("multipart request contains no decodable image")
+		}
+		if err != nil {
+			return nil, err
+		}
+		isCandidate := part.FileName() != "" || part.FormName() == "clipboard" || strings.HasPrefix(strings.ToLower(part.Header.Get("Content-Type")), "image/")
+		if !isCandidate {
+			part.Close()
+			continue
+		}
+		pngData, decodeErr := imageAsPNG(part)
+		part.Close()
+		if decodeErr == nil {
+			return pngData, nil
+		}
+	}
 }
 
 func (s *Server) uploadFileLegacy(w http.ResponseWriter, r *http.Request) {
@@ -339,7 +404,11 @@ func fileAsPNG(path string) ([]byte, error) {
 		return nil, err
 	}
 	defer f.Close()
-	img, _, err := image.Decode(f)
+	return imageAsPNG(f)
+}
+
+func imageAsPNG(r io.Reader) ([]byte, error) {
+	img, _, err := image.Decode(r)
 	if err != nil {
 		return nil, err
 	}

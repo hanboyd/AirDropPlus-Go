@@ -9,6 +9,7 @@
 - Windows → iPhone 剪贴板：文字、图片、资源管理器中复制的文件
 - 兼容 AirDropPlus 1.5 已签名 iOS 快捷指令的 `/file`、`/clipboard` 接口
 - Windows 11 原生托盘小面板：每页 3 条、最多 2 页，支持长文本完整展开和图片缩略图
+- iPhone 图片无论走 JSON 图片接口、`/file` 上传或兼容 `/clipboard` 图片表单，均统一进入真实图片历史，不以文件名代替
 - 第 7 条起的旧内容自动归档到 `dist/data/clipboard-archive/YYYY-MM-DD.md`；图片另存到 `assets/`，每条均带精确时间戳
 - 双状态托盘图标：灰灯表示待命，手机最新一次 `Send` 后切为绿灯；点击图标确认并复位，不自动展开
 - PC 剪贴板共享开关；iPhone 使用 `Receive` 拉取当前 PC 文字、图片或文件

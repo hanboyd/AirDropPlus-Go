@@ -12,6 +12,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -178,6 +179,48 @@ func TestImageUploadAlsoUpdatesClipboard(t *testing.T) {
 	}
 	if f.content.Kind != clipboard.Image || len(f.content.PNG) == 0 {
 		t.Fatal("uploaded image was not written to clipboard")
+	}
+}
+
+func TestLegacyClipboardAcceptsMultipartImageInsteadOfFilename(t *testing.T) {
+	img := image.NewNRGBA(image.Rect(0, 0, 3, 2))
+	img.SetNRGBA(1, 1, color.NRGBA{R: 30, G: 120, B: 220, A: 255})
+	var imageBody bytes.Buffer
+	if err := png.Encode(&imageBody, img); err != nil {
+		t.Fatal(err)
+	}
+	ts, f, token := newTestServer(t, clipboard.Content{Kind: clipboard.Text, Text: "before"})
+	defer ts.Close()
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	part, _ := mw.CreateFormFile("clipboard", "IMG_0042.PNG")
+	_, _ = part.Write(imageBody.Bytes())
+	_ = mw.Close()
+	resp := req(t, "POST", ts.URL+"/clipboard", token, mw.FormDataContentType(), &body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status=%d", resp.StatusCode)
+	}
+	if f.content.Kind != clipboard.Image || bytes.Contains(f.content.PNG, []byte("IMG_0042.PNG")) {
+		t.Fatal("multipart clipboard image was reduced to its filename")
+	}
+}
+
+func TestLegacyClipboardAcceptsInlineImageData(t *testing.T) {
+	img := image.NewNRGBA(image.Rect(0, 0, 2, 2))
+	img.SetNRGBA(0, 1, color.NRGBA{R: 220, G: 80, A: 255})
+	var imageBody bytes.Buffer
+	if err := png.Encode(&imageBody, img); err != nil {
+		t.Fatal(err)
+	}
+	ts, f, token := newTestServer(t, clipboard.Content{})
+	defer ts.Close()
+	value := "data:image/png;base64," + base64.StdEncoding.EncodeToString(imageBody.Bytes())
+	form := url.Values{"clipboard": {value}}.Encode()
+	resp := req(t, "POST", ts.URL+"/clipboard", token, "application/x-www-form-urlencoded", strings.NewReader(form))
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK || f.content.Kind != clipboard.Image {
+		t.Fatalf("inline image was not decoded: status=%d kind=%s", resp.StatusCode, f.content.Kind)
 	}
 }
 

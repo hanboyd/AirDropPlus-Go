@@ -604,17 +604,14 @@ func (a *app) paint() {
 	}
 	for _, item := range visible {
 		h := 78
-		if item.Content.Kind == clipboard.Image {
-			h = 96
-		}
 		card := rect{18, int32(y), 372, int32(y + h)}
 		fillRound(hdc, card, 12, rgb(255, 255, 255), rgb(229, 227, 221))
 		selectFont(hdc, fontCN)
 		if item.Content.Kind == clipboard.Image {
-			a.drawImageCard(hdc, item.ID, item.Content.PNG, 30, int32(y+12), 92, int32(y+82))
-			text(hdc, "图片剪贴板", 108, int32(y+17), 250, int32(y+42), rgb(28, 28, 30), dtLeft|dtSingleLine)
+			a.drawImageCard(hdc, item.ID, item.Content.PNG, 30, int32(y+10), 112, int32(y+60))
+			text(hdc, "图片", 126, int32(y+13), 250, int32(y+36), rgb(28, 28, 30), dtLeft|dtSingleLine)
 			selectFont(hdc, fontSmall)
-			text(hdc, sourceLabel(item.Source)+" · "+relative(item.Created), 108, int32(y+44), 260, int32(y+65), rgb(115, 112, 107), dtLeft|dtSingleLine)
+			text(hdc, sourceLabel(item.Source)+" · "+relative(item.Created), 126, int32(y+37), 260, int32(y+57), rgb(115, 112, 107), dtLeft|dtSingleLine)
 		} else {
 			body := item.Content.Text
 			if item.Content.Kind == clipboard.Files {

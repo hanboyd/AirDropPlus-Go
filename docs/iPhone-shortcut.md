@@ -50,6 +50,7 @@ ShortcutVersion: 1.5.4
 ## 图片同步说明
 
 - iPhone → Windows 图片使用新 JSON API，要求 PNG Base64。
+- 兼容 `/clipboard` 现在也接受 multipart 图片字段，以及 `data:image/...;base64,...` / 可解码的图片 Base64；这些会记录为图片并在 UI 显示缩略图，不再降级成文件名。
 - Windows → iPhone 支持 Windows 剪贴板常见的 24/32 位未压缩 DIB，服务转换为 PNG。
 - “复制文件”与“复制文件里的图片”不同：前者作为文件传输，后者作为剪贴板图片传输。
 
