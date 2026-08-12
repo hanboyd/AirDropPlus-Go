@@ -37,6 +37,7 @@ const (
 	wmIncoming                  = wmApp + 2
 	wmDevice                    = wmApp + 3
 	wmClipboardUpdate           = 0x031D
+	wmDpiChanged                = 0x02E0
 	wsPopup                     = 0x80000000
 	wsChild                     = 0x40000000
 	wsVisible                   = 0x10000000
@@ -86,6 +87,9 @@ var (
 	procPostMessage                   = user32.NewProc("PostMessageW")
 	procShowWindow                    = user32.NewProc("ShowWindow")
 	procSetWindowPos                  = user32.NewProc("SetWindowPos")
+	procSetProcessDpiAwarenessContext = user32.NewProc("SetProcessDpiAwarenessContext")
+	procSetProcessDPIAware            = user32.NewProc("SetProcessDPIAware")
+	procGetDpiForSystem               = user32.NewProc("GetDpiForSystem")
 	procMoveWindow                    = user32.NewProc("MoveWindow")
 	procSetWindowText                 = user32.NewProc("SetWindowTextW")
 	procSendMessage                   = user32.NewProc("SendMessageW")
@@ -107,6 +111,8 @@ var (
 	procSelectObject                  = gdi32.NewProc("SelectObject")
 	procRoundRect                     = gdi32.NewProc("RoundRect")
 	procStretchDIBits                 = gdi32.NewProc("StretchDIBits")
+	procSetStretchBltMode             = gdi32.NewProc("SetStretchBltMode")
+	procSetBrushOrgEx                 = gdi32.NewProc("SetBrushOrgEx")
 	procCreatePen                     = gdi32.NewProc("CreatePen")
 	procMoveToEx                      = gdi32.NewProc("MoveToEx")
 	procLineTo                        = gdi32.NewProc("LineTo")
@@ -206,14 +212,21 @@ type app struct {
 	idleIcon     uintptr
 	receivedIcon uintptr
 	unread       bool
+	dpi          int32
 	page         int
 	expanded     uint64
 	editItem     uint64
 }
 
 var current *app
+var dpiAwarenessMode = "System DPI Aware"
 
 func Run(ctx context.Context, store *history.Store, service *bridge.Service, tracker *device.Tracker) error {
+	if ok, _, _ := procSetProcessDpiAwarenessContext.Call(^uintptr(3)); ok == 0 {
+		procSetProcessDPIAware.Call()
+	} else {
+		dpiAwarenessMode = "Per-Monitor DPI Aware V2"
+	}
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 	a := &app{store: store, bridge: service, tracker: tracker, thumbnails: make(map[uint64]thumbnail)}
@@ -259,6 +272,11 @@ func Run(ctx context.Context, store *history.Store, service *bridge.Service, tra
 
 func (a *app) create() error {
 	a.loadPrivateFonts()
+	a.dpi = 96
+	if dpi, _, _ := procGetDpiForSystem.Call(); dpi >= 96 {
+		a.dpi = int32(dpi)
+	}
+	fmt.Printf("Native UI: %s, %d DPI\n", dpiAwarenessMode, a.dpi)
 	instance, _, _ := procGetModuleHandle.Call(0)
 	class, _ := syscall.UTF16PtrFromString("AirDropPlusGoNativeUI")
 	cursor, _, _ := procLoadCursor.Call(0, 32512)
@@ -271,12 +289,12 @@ func (a *app) create() error {
 	if a.main == 0 {
 		return fmt.Errorf("create message window")
 	}
-	a.popup, _, _ = procCreateWindowEx.Call(wsExTopmost|wsExToolwindow, uintptr(unsafe.Pointer(class)), uintptr(unsafe.Pointer(mainTitle)), wsPopup, 0, 0, 390, 548, 0, 0, instance, 0)
+	a.popup, _, _ = procCreateWindowEx.Call(wsExTopmost|wsExToolwindow, uintptr(unsafe.Pointer(class)), uintptr(unsafe.Pointer(mainTitle)), wsPopup, 0, 0, uintptr(a.px(390)), uintptr(a.px(548)), 0, 0, instance, 0)
 	if a.popup == 0 {
 		return fmt.Errorf("create popup")
 	}
 	editClass, _ := syscall.UTF16PtrFromString("EDIT")
-	a.edit, _, _ = procCreateWindowEx.Call(0, uintptr(unsafe.Pointer(editClass)), 0, wsChild|wsVisible|wsVScroll|wsBorder|esMultiline|esAutoVScroll|esReadOnly, 18, 194, 354, 278, a.popup, 0, instance, 0)
+	a.edit, _, _ = procCreateWindowEx.Call(0, uintptr(unsafe.Pointer(editClass)), 0, wsChild|wsVisible|wsVScroll|wsBorder|esMultiline|esAutoVScroll|esReadOnly, uintptr(a.px(18)), uintptr(a.px(194)), uintptr(a.px(354)), uintptr(a.px(278)), a.popup, 0, instance, 0)
 	if a.edit == 0 {
 		return fmt.Errorf("create expanded text view")
 	}
@@ -377,7 +395,24 @@ func (a *app) popupProc(message uint32, wparam, lparam uintptr) uintptr {
 		return 0
 	case wmLButtonUp:
 		procSetTimer.Call(a.popup, 2, 10000, 0)
-		a.click(int32(int16(lparam&0xffff)), int32(int16((lparam>>16)&0xffff)))
+		a.click(a.logical(int32(int16(lparam&0xffff))), a.logical(int32(int16((lparam>>16)&0xffff))))
+		return 0
+	case wmDpiChanged:
+		newDPI := int32(wparam & 0xffff)
+		if newDPI >= 96 {
+			a.dpi = newDPI
+			if lparam != 0 {
+				r := (*rect)(unsafe.Pointer(lparam))
+				procSetWindowPos.Call(a.popup, 0, uintptr(r.Left), uintptr(r.Top), uintptr(r.Right-r.Left), uintptr(r.Bottom-r.Top), 0)
+			}
+			if a.editFont != 0 {
+				procDeleteObject.Call(a.editFont)
+			}
+			a.editFont = font(-16, 400, "TsangerJinKai02")
+			procSendMessage.Call(a.edit, wmSetFont, a.editFont, 1)
+			a.thumbnails = make(map[uint64]thumbnail)
+			procInvalidateRect.Call(a.popup, 0, 1)
+		}
 		return 0
 	case wmTimer:
 		if wparam == 2 {
@@ -410,9 +445,9 @@ func (a *app) hide() {
 func (a *app) show() {
 	var work rect
 	procSystemParametersInfo.Call(spiGetWorkArea, 0, uintptr(unsafe.Pointer(&work)), 0)
-	x := work.Right - 406
-	y := work.Bottom - 564
-	procSetWindowPos.Call(a.popup, ^uintptr(0), uintptr(x), uintptr(y), 390, 548, swpNoActivate)
+	x := work.Right - a.px(406)
+	y := work.Bottom - a.px(564)
+	procSetWindowPos.Call(a.popup, ^uintptr(0), uintptr(x), uintptr(y), uintptr(a.px(390)), uintptr(a.px(548)), swpNoActivate)
 	procShowWindow.Call(a.popup, swShow)
 	procSetTimer.Call(a.popup, 2, 10000, 0)
 	procInvalidateRect.Call(a.popup, 0, 1)
@@ -519,9 +554,7 @@ func (a *app) paint() {
 	var ps paintstruct
 	hdc, _, _ := procBeginPaint.Call(a.popup, uintptr(unsafe.Pointer(&ps)))
 	defer procEndPaint.Call(a.popup, uintptr(unsafe.Pointer(&ps)))
-	var bounds rect
-	procGetClientRect.Call(a.popup, uintptr(unsafe.Pointer(&bounds)))
-	fill(hdc, bounds, rgb(248, 247, 243))
+	fill(hdc, rect{0, 0, 390, 548}, rgb(248, 247, 243))
 	procSetBkMode.Call(hdc, transparent)
 	fontTitle := font(-22, 600, "Bitstream Charter")
 	fontCN := font(-16, 400, "TsangerJinKai02")
@@ -693,7 +726,7 @@ func (a *app) paintExpanded(hdc uintptr, item history.Item, fontCN, fontSmall ui
 	selectFont(hdc, fontSmall)
 	stamp := item.Created.Format("2006-01-02 15:04:05")
 	text(hdc, sourceLabel(item.Source)+" · "+stamp, 178, 168, 372, 188, rgb(110, 108, 103), dtRight|dtSingleLine)
-	procMoveWindow.Call(a.edit, 18, 194, 354, 278, 1)
+	procMoveWindow.Call(a.edit, uintptr(a.px(18)), uintptr(a.px(194)), uintptr(a.px(354)), uintptr(a.px(278)), 1)
 	if a.editItem != item.ID {
 		body := strings.ReplaceAll(strings.ReplaceAll(item.Content.Text, "\r\n", "\n"), "\n", "\r\n")
 		p, _ := syscall.UTF16PtrFromString(body)
@@ -711,26 +744,46 @@ func isLongText(s string) bool {
 	return utf8.RuneCountInString(s) > 60 || strings.ContainsAny(s, "\r\n")
 }
 
+func dpiScale(value, dpi int32) int32 {
+	if dpi < 96 {
+		dpi = 96
+	}
+	return value * dpi / 96
+}
+
+func (a *app) px(value int32) int32      { return dpiScale(value, a.dpi) }
+func (a *app) logical(value int32) int32 { return value * 96 / max(a.dpi, 96) }
+
+func uiPX(value int32) int32 {
+	if current == nil {
+		return value
+	}
+	return current.px(value)
+}
+
 func font(height int32, weight int32, name string) uintptr {
 	p, _ := syscall.UTF16PtrFromString(name)
-	r, _, _ := procCreateFont.Call(uintptr(height), 0, 0, 0, uintptr(weight), 0, 0, 0, 1, 0, 0, 5, 0, uintptr(unsafe.Pointer(p)))
+	r, _, _ := procCreateFont.Call(uintptr(uiPX(height)), 0, 0, 0, uintptr(weight), 0, 0, 0, 1, 0, 0, 5, 0, uintptr(unsafe.Pointer(p)))
 	return r
 }
 func selectFont(hdc, f uintptr) { procSelectObject.Call(hdc, f) }
 func text(hdc uintptr, s string, l, t, r, b int32, color uint32, flags uint32) {
 	p, _ := syscall.UTF16PtrFromString(s)
-	rc := rect{l, t, r, b}
+	rc := rect{uiPX(l), uiPX(t), uiPX(r), uiPX(b)}
 	procSetTextColor.Call(hdc, uintptr(color))
 	procDrawText.Call(hdc, uintptr(unsafe.Pointer(p)), uintptr(len([]rune(s))), uintptr(unsafe.Pointer(&rc)), uintptr(flags))
 }
 func fill(hdc uintptr, r rect, color uint32) {
+	r = rect{uiPX(r.Left), uiPX(r.Top), uiPX(r.Right), uiPX(r.Bottom)}
 	b, _, _ := procCreateSolidBrush.Call(uintptr(color))
 	procFillRect.Call(hdc, uintptr(unsafe.Pointer(&r)), b)
 	procDeleteObject.Call(b)
 }
 func fillRound(hdc uintptr, r rect, radius int32, fillColor, border uint32) {
+	r = rect{uiPX(r.Left), uiPX(r.Top), uiPX(r.Right), uiPX(r.Bottom)}
+	radius = uiPX(radius)
 	b, _, _ := procCreateSolidBrush.Call(uintptr(fillColor))
-	p, _, _ := procCreatePen.Call(0, 1, uintptr(border))
+	p, _, _ := procCreatePen.Call(0, uintptr(max(uiPX(1), 1)), uintptr(border))
 	oldB, _, _ := procSelectObject.Call(hdc, b)
 	oldP, _, _ := procSelectObject.Call(hdc, p)
 	procRoundRect.Call(hdc, uintptr(r.Left), uintptr(r.Top), uintptr(r.Right), uintptr(r.Bottom), uintptr(radius), uintptr(radius))
@@ -743,7 +796,7 @@ func (a *app) drawImageCard(hdc uintptr, id uint64, png []byte, l, t, r, b int32
 	fillRound(hdc, rect{l, t, r, b}, 8, rgb(239, 237, 231), rgb(215, 212, 204))
 	thumb, ok := a.thumbnails[id]
 	if !ok {
-		thumb, ok = makeThumbnail(png, 128)
+		thumb, ok = makeThumbnail(png, thumbnailCacheSize(r-l, b-t, a.dpi))
 		if ok {
 			a.thumbnails[id] = thumb
 		}
@@ -760,7 +813,9 @@ func (a *app) drawImageCard(hdc uintptr, id uint64, png []byte, l, t, r, b int32
 	w, h := int32(float64(thumb.width)*scale), int32(float64(thumb.height)*scale)
 	x, y := l+(dw-w)/2+4, t+(dh-h)/2+4
 	info := bitmapInfo{Header: bitmapInfoHeader{Size: uint32(unsafe.Sizeof(bitmapInfoHeader{})), Width: thumb.width, Height: -thumb.height, Planes: 1, BitCount: 32, SizeImage: uint32(len(thumb.pixels))}}
-	procStretchDIBits.Call(hdc, uintptr(x), uintptr(y), uintptr(w), uintptr(h), 0, 0, uintptr(thumb.width), uintptr(thumb.height), uintptr(unsafe.Pointer(&thumb.pixels[0])), uintptr(unsafe.Pointer(&info)), 0, 0x00CC0020)
+	procSetStretchBltMode.Call(hdc, 4)
+	procSetBrushOrgEx.Call(hdc, 0, 0, 0)
+	procStretchDIBits.Call(hdc, uintptr(uiPX(x)), uintptr(uiPX(y)), uintptr(uiPX(w)), uintptr(uiPX(h)), 0, 0, uintptr(thumb.width), uintptr(thumb.height), uintptr(unsafe.Pointer(&thumb.pixels[0])), uintptr(unsafe.Pointer(&info)), 0, 0x00CC0020)
 }
 
 func makeThumbnail(data []byte, maxSize int) (thumbnail, bool) {
@@ -793,6 +848,10 @@ func makeThumbnail(data []byte, maxSize int) (thumbnail, bool) {
 		}
 	}
 	return thumbnail{pixels: pixels, width: int32(w), height: int32(h)}, true
+}
+
+func thumbnailCacheSize(logicalWidth, logicalHeight, dpi int32) int {
+	return int(max(max(dpiScale(logicalWidth, dpi), dpiScale(logicalHeight, dpi)), 128))
 }
 func rgb(r, g, b uint32) uint32 { return r | (g << 8) | (b << 16) }
 func sourceLabel(s history.Source) string {

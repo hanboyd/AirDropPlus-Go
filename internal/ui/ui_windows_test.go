@@ -37,3 +37,19 @@ func TestThumbnailContainsDecodedImagePixels(t *testing.T) {
 		t.Fatal("thumbnail did not retain decoded pixel content")
 	}
 }
+
+func TestDPIScalingPreservesLogicalSize(t *testing.T) {
+	for _, tc := range []struct {
+		dpi, logical, physical int32
+	}{{96, 390, 390}, {144, 390, 585}, {192, 390, 780}, {240, 390, 975}} {
+		if got := dpiScale(tc.logical, tc.dpi); got != tc.physical {
+			t.Fatalf("dpi=%d got=%d want=%d", tc.dpi, got, tc.physical)
+		}
+	}
+}
+
+func TestThumbnailCacheUsesPhysicalDPI(t *testing.T) {
+	if got := thumbnailCacheSize(82, 50, 240); got != 205 {
+		t.Fatalf("thumbnail cache size=%d want=205", got)
+	}
+}
