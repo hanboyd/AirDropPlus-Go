@@ -86,6 +86,8 @@ var (
 	procSetBkMode                     = gdi32.NewProc("SetBkMode")
 	procSetTextColor                  = gdi32.NewProc("SetTextColor")
 	procCreateSolidBrush              = gdi32.NewProc("CreateSolidBrush")
+	procCreateBitmap                  = gdi32.NewProc("CreateBitmap")
+	procCreateDIBSection              = gdi32.NewProc("CreateDIBSection")
 	procDeleteObject                  = gdi32.NewProc("DeleteObject")
 	procCreateFont                    = gdi32.NewProc("CreateFontW")
 	procAddFontResourceEx             = gdi32.NewProc("AddFontResourceExW")
@@ -97,6 +99,8 @@ var (
 	procMoveToEx                      = gdi32.NewProc("MoveToEx")
 	procLineTo                        = gdi32.NewProc("LineTo")
 	procLoadIcon                      = user32.NewProc("LoadIconW")
+	procCreateIconIndirect            = user32.NewProc("CreateIconIndirect")
+	procDestroyIcon                   = user32.NewProc("DestroyIcon")
 	procLoadCursor                    = user32.NewProc("LoadCursorW")
 	procSystemParametersInfo          = user32.NewProc("SystemParametersInfoW")
 	procSetTimer                      = user32.NewProc("SetTimer")
@@ -163,6 +167,11 @@ type bitmapInfo struct {
 	Header bitmapInfoHeader
 	Colors [1]uint32
 }
+type iconInfo struct {
+	Icon               int32
+	XHotspot, YHotspot uint32
+	Mask, Color        uintptr
+}
 type thumbnail struct {
 	pixels        []byte
 	width, height int32
@@ -180,6 +189,9 @@ type app struct {
 	unsubscribe  func()
 	thumbnails   map[uint64]thumbnail
 	privateFonts []string
+	idleIcon     uintptr
+	receivedIcon uintptr
+	unread       bool
 }
 
 var current *app
@@ -250,6 +262,8 @@ func (a *app) create() error {
 	procDwmSetWindowAttribute.Call(a.popup, dwmwaWindowCornerPreference, uintptr(unsafe.Pointer(&corner)), unsafe.Sizeof(corner))
 	procAddClipboardFormatListener.Call(a.main)
 	procSetTimer.Call(a.main, 1, 30000, 0)
+	a.idleIcon = createStatusIcon(false)
+	a.receivedIcon = createStatusIcon(true)
 	a.updateTray(true)
 	return nil
 }
@@ -258,6 +272,12 @@ func (a *app) cleanup() {
 	procKillTimer.Call(a.main, 1)
 	procRemoveClipboardFormatListener.Call(a.main)
 	procShellNotifyIcon.Call(nimDelete, uintptr(unsafe.Pointer(&a.tray)))
+	if a.idleIcon != 0 {
+		procDestroyIcon.Call(a.idleIcon)
+	}
+	if a.receivedIcon != 0 {
+		procDestroyIcon.Call(a.receivedIcon)
+	}
 	for _, path := range a.privateFonts {
 		p, _ := syscall.UTF16PtrFromString(path)
 		procRemoveFontResourceEx.Call(uintptr(unsafe.Pointer(p)), 0x10, 0)
@@ -293,11 +313,15 @@ func windowProc(hwnd uintptr, message uint32, wparam, lparam uintptr) uintptr {
 	switch message {
 	case wmTray:
 		if uint32(lparam) == wmLButtonUp {
+			a.unread = false
+			a.updateTray(false)
 			a.toggle()
 		}
 		return 0
 	case wmIncoming:
-		a.show()
+		a.unread = true
+		a.updateTray(false)
+		procInvalidateRect.Call(a.popup, 0, 1)
 		return 0
 	case wmDevice, wmTimer:
 		a.updateTray(false)
@@ -364,14 +388,19 @@ func (a *app) show() {
 }
 
 func (a *app) updateTray(add bool) {
-	iconID := uintptr(idiApplication)
 	state := "iPhone 未连接"
 	if a.tracker.Online() {
-		iconID = idiInformation
 		s := a.tracker.State()
 		state = "iPhone 已连接 · " + s.IP
 	}
-	icon, _, _ := procLoadIcon.Call(0, iconID)
+	icon := a.idleIcon
+	if a.unread {
+		icon = a.receivedIcon
+		state = "已收到 iPhone 最新发送 · " + state
+	}
+	if icon == 0 {
+		icon, _, _ = procLoadIcon.Call(0, idiApplication)
+	}
 	a.tray = notifyicondata{Size: uint32(unsafe.Sizeof(notifyicondata{})), Hwnd: a.main, ID: 1, Flags: nifMessage | nifIcon | nifTip, CallbackMessage: wmTray, Icon: icon}
 	copy(a.tray.Tip[:], syscall.StringToUTF16("AirDropPlus-Go · "+state))
 	op := uintptr(nimModify)
@@ -379,6 +408,79 @@ func (a *app) updateTray(add bool) {
 		op = nimAdd
 	}
 	procShellNotifyIcon.Call(op, uintptr(unsafe.Pointer(&a.tray)))
+}
+
+func createStatusIcon(received bool) uintptr {
+	const size = 32
+	const scale = 4
+	high := make([][4]byte, size*scale*size*scale)
+	paint := func(shape func(float64, float64) bool, color [4]byte) {
+		width := size * scale
+		for y := range width {
+			for x := range width {
+				px, py := (float64(x)+0.5)/scale, (float64(y)+0.5)/scale
+				if shape(px, py) {
+					high[y*width+x] = color
+				}
+			}
+		}
+	}
+	rounded := func(l, t, r, b, radius float64) func(float64, float64) bool {
+		return func(x, y float64) bool {
+			cx := max(l+radius, min(x, r-radius))
+			cy := max(t+radius, min(y, b-radius))
+			dx, dy := x-cx, y-cy
+			return x >= l && x <= r && y >= t && y <= b && dx*dx+dy*dy <= radius*radius
+		}
+	}
+	circle := func(cx, cy, radius float64) func(float64, float64) bool {
+		return func(x, y float64) bool { dx, dy := x-cx, y-cy; return dx*dx+dy*dy <= radius*radius }
+	}
+	paint(rounded(2, 2, 30, 30, 7), [4]byte{38, 54, 72, 255})
+	paint(rounded(9, 6, 23, 27, 4), [4]byte{255, 255, 255, 255})
+	paint(rounded(11, 8, 21, 23.5, 2), [4]byte{38, 54, 72, 255})
+	paint(circle(16, 25, 1), [4]byte{38, 54, 72, 255})
+	paint(circle(24, 24, 6), [4]byte{255, 255, 255, 255})
+	dot := [4]byte{174, 175, 171, 255}
+	if received {
+		dot = [4]byte{52, 199, 89, 255}
+	}
+	paint(circle(24, 24, 4.1), dot)
+
+	pixels := make([]byte, size*size*4)
+	for y := range size {
+		for x := range size {
+			var rr, gg, bb, aa int
+			for sy := range scale {
+				for sx := range scale {
+					c := high[(y*scale+sy)*size*scale+x*scale+sx]
+					rr += int(c[0])
+					gg += int(c[1])
+					bb += int(c[2])
+					aa += int(c[3])
+				}
+			}
+			i := (y*size + x) * 4
+			pixels[i], pixels[i+1], pixels[i+2], pixels[i+3] = byte(bb/16), byte(gg/16), byte(rr/16), byte(aa/16)
+		}
+	}
+	info := bitmapInfo{Header: bitmapInfoHeader{Size: uint32(unsafe.Sizeof(bitmapInfoHeader{})), Width: size, Height: -size, Planes: 1, BitCount: 32, SizeImage: uint32(len(pixels))}}
+	var bits uintptr
+	color, _, _ := procCreateDIBSection.Call(0, uintptr(unsafe.Pointer(&info)), 0, uintptr(unsafe.Pointer(&bits)), 0, 0)
+	if color == 0 || bits == 0 {
+		return 0
+	}
+	copy(unsafe.Slice((*byte)(unsafe.Pointer(bits)), len(pixels)), pixels)
+	mask, _, _ := procCreateBitmap.Call(size, size, 1, 1, 0)
+	if mask == 0 {
+		procDeleteObject.Call(color)
+		return 0
+	}
+	ii := iconInfo{Icon: 1, Mask: mask, Color: color}
+	icon, _, _ := procCreateIconIndirect.Call(uintptr(unsafe.Pointer(&ii)))
+	procDeleteObject.Call(mask)
+	procDeleteObject.Call(color)
+	return icon
 }
 
 func (a *app) paint() {
