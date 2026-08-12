@@ -79,7 +79,7 @@ AirDropPlus-Go/
 
 Windows 无法替 Apple 签名新的 `.shortcut` 包；未签名文件在 iPhone 上不能直接导入。项目因此提供两条可验证路径：
 
-1. 直接导入原 AirDropPlus 官方已签名快捷指令，并填入本项目地址和 token。本服务实现了它需要的公开 API；真实 iPhone 验证暂缓。
+1. 直接导入原 AirDropPlus 官方已签名快捷指令，然后编辑开头的 `userconfig` 字典，把示例 host、port、key 换成本项目地址和 token。该分享包没有安装时导入问题；仅扫码添加不会自动完成配置。本服务实现了它需要的公开 API；真实 iPhone 验证暂缓。
 2. 按 [快捷指令蓝图](shortcuts/shortcut-blueprint.json) 创建完全属于本项目的版本；动作清单见 [iPhone 配置](docs/iPhone-shortcut.md)。创建后可由 iPhone 自己生成 iCloud 分享链接。
 
 无论哪种方式，iOS 都会要求本人确认“添加快捷指令”和第一次局域网/剪贴板/文件权限，这是系统安全机制，电脑端不能代按。
