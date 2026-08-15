@@ -587,10 +587,10 @@ func (a *app) paint() {
 	text(hdc, detail, 58, 90, 245, 107, rgb(102, 102, 102), dtLeft|dtSingleLine)
 	share := a.bridge.SharingPC()
 	toggleColor := rgb(215, 214, 209)
-	shareText := "PC 剪贴板共享：关"
+	shareText := "PC 共享：关"
 	if share {
 		toggleColor = rgb(41, 104, 171)
-		shareText = "PC 剪贴板共享：开"
+		shareText = "PC 共享：开"
 	}
 	fillRound(hdc, rect{258, 73, 354, 101}, 14, toggleColor, toggleColor)
 	textColor := rgb(50, 50, 52)
