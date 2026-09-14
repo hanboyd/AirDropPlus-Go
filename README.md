@@ -131,7 +131,15 @@ go vet -unsafeptr=false ./...
 .\scripts\Build.ps1
 ```
 
-测试覆盖鉴权、双向文字与图片模拟剪贴板、历史去重和内存上限、文件上传清洗/重名、Windows 路径不泄露、临时文件引用下载、重复实例拒绝，以及 DIB/DIBV5 ↔ PNG 像素和 Alpha 转换。真实 iPhone 导入、权限和局域网联调按当前阶段要求暂不执行。
+测试覆盖鉴权、双向文字与图片模拟剪贴板、历史去重和内存上限、文件上传清洗/重名、Windows 路径不泄露、临时文件引用下载、重复实例拒绝、iPhone 1.5.4 quirk（multipart 文件体回填成文件名、urlencoded `/clipboard` 只放文件名）、HEIC 不可解码时仍正确落盘，以及 DIB/DIBV5 ↔ PNG 像素和 Alpha 转换。真实 iPhone 导入、权限和局域网联调按当前阶段要求暂不执行。
+
+## iPhone 端常见故障码
+
+服务端对已知的 iOS 1.5.4 quirk 全部返回 HTTP 400，错误信息中直接说明原因，iPhone 端用“显示通知”动作展示响应原文即可看到具体是哪一种：
+
+- `received file "..." is empty`：`/file` 的 multipart part body 为空。
+- `received file "..." contains only its name`：`/file` 的 multipart part body 退化为文件名字符串。
+- `clipboard form value "..." looks like a filename`：`/clipboard` 的 urlencoded 表单里只放了图片文件名而非图片内容。本项目自有蓝图已把分享图片改为走 `/api/v1/clipboard` JSON Base64，避开这条降级路径。
 
 `unsafeptr` 是唯一关闭的 vet 分析器：Win32 `GlobalLock` 通过系统调用返回原始指针值，Go 必须在这个很小的 FFI 边界把它转换成字节视图。其他 vet 分析器保持启用。
 
