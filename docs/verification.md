@@ -7,6 +7,7 @@
 - `go test ./...`：全部通过；覆盖配置、鉴权、双向文字/图片剪贴板模拟、两页历史淘汰、Markdown/PNG 归档、时间戳、历史去重和 64 MiB 内存上限、文件上传、重名、文件引用下载、DIB/DIBV5/Alpha 转换，以及 iPhone 1.5.4 quirk 防护（multipart 空 part、文件名回填、urlencoded `/clipboard` 纯文件名表单 → 400 且不污染剪贴板）和 HEIC 不可解码时的落盘路径。
 - `go vet -unsafeptr=false ./...`：通过。只排除 Win32 `GlobalLock` 必需的指针转换启发式告警，其他分析器保持启用。
 - `scripts/Build.ps1 -Version 0.3.4` 成功生成原生 Windows GUI 构建，`/healthz` 返回 `0.3.4`；EXE SHA-256：`2FCA4B5401353F9C2249E2F46751AB57D261D0C5709849D8B7C378495D54B928`。
+- `scripts/Build.ps1 -Version 0.4.0` 成功生成原生 Windows GUI 构建，`/healthz` 返回 `0.4.0`；EXE SHA-256：`8B2D71192E6BA086CAE5AAAAF2FF302A1FC60AC1054D9DD2AFD8FF83DA4FEF60`。新增 iPhone 1.5.4 quirk 防护与 HEIC 落盘路径测试均通过；其余历史验证项未受影响。
 - 高 DPI 运行验证：当前显示器为 240 DPI（250%），进程成功启用 Per-Monitor DPI Awareness V2；390×548 逻辑窗口直接绘制为 975×1370 物理像素，字体、边框、圆角、缩略图和点击区域同步缩放，不再由 Windows 做 2.5 倍位图插值。缩略图缓存按物理绘制尺寸生成，使用 HALFTONE 缩放，并在 `WM_DPICHANGED` 后重建。
 - 视觉锐度修正：品牌标题外的所有 UI 文字统一使用本机已验证安装的 Microsoft YaHei UI；标题 600、正文 400，正文/次要/弱提示颜色下限为 `#333333`/`#666666`/`#707070`，边框为不透明 `#D8D8D8`，未通过父级 opacity 降低文字对比度。
 - 连续模拟 7 条带鉴权 iPhone 文字发送：界面保留最新 6 条，第 1 条写入当日 Markdown，第 7 条未提前归档；归档标题含 RFC 3339 纳秒时间戳和 `+08:00` 时区。验证生成物已清除后重启。
