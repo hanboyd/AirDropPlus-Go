@@ -60,6 +60,20 @@ func newTestServer(t *testing.T, initial clipboard.Content) (*httptest.Server, *
 	return httptest.NewServer(s.Handler()), f, token
 }
 
+func newTestServerWithDir(t *testing.T, initial clipboard.Content) (*httptest.Server, *fakeClipboard, string, string) {
+	t.Helper()
+	token := "test-token-1234567890"
+	cfg := config.Default(t.TempDir())
+	cfg.Token = token
+	cfg.DownloadDir = filepath.Join(t.TempDir(), "received")
+	f := &fakeClipboard{content: initial}
+	s, err := New(cfg, f, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return httptest.NewServer(s.Handler()), f, token, cfg.DownloadDir
+}
+
 func req(t *testing.T, method, url, token, contentType string, body io.Reader) *http.Response {
 	t.Helper()
 	r, err := http.NewRequest(method, url, body)
@@ -253,5 +267,242 @@ func TestClipboardFileUsesOpaqueReference(t *testing.T) {
 	downloaded, _ := io.ReadAll(resp.Body)
 	if string(downloaded) != "file-body" {
 		t.Fatalf("download=%q", downloaded)
+	}
+}
+
+// TestUploadFileContentSavedOnDisk guards the "only the image name is
+// received, never the content" bug: when the iPhone sends a real binary
+// image, the saved file on disk must contain those exact bytes — not 0
+// bytes and not just the filename.
+func TestUploadFileContentSavedOnDisk(t *testing.T) {
+	ts, _, token, dlDir := newTestServerWithDir(t, clipboard.Content{})
+	defer ts.Close()
+	img := image.NewNRGBA(image.Rect(0, 0, 800, 600))
+	for y := 0; y < 600; y++ {
+		for x := 0; x < 800; x++ {
+			img.SetNRGBA(x, y, color.NRGBA{R: uint8(x), G: uint8(y), B: uint8((x + y) / 2), A: 255})
+		}
+	}
+	var pngBody bytes.Buffer
+	if err := png.Encode(&pngBody, img); err != nil {
+		t.Fatal(err)
+	}
+	if pngBody.Len() < 1000 {
+		t.Fatalf("expected non-trivial PNG, got %d bytes", pngBody.Len())
+	}
+
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	part, _ := mw.CreateFormFile("file", "IMG_0042.PNG")
+	_, _ = part.Write(pngBody.Bytes())
+	_ = mw.Close()
+
+	resp := req(t, "POST", ts.URL+"/file", token, mw.FormDataContentType(), &body)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status=%d body=%s", resp.StatusCode, respBody)
+	}
+
+	files, err := os.ReadDir(dlDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 1 {
+		t.Fatalf("expected 1 file on disk, got %d", len(files))
+	}
+	got, err := os.ReadFile(filepath.Join(dlDir, files[0].Name()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, pngBody.Bytes()) {
+		t.Fatalf("file content mismatch: got %d bytes, expected %d bytes", len(got), pngBody.Len())
+	}
+	if !bytes.HasPrefix(got, []byte{0x89, 'P', 'N', 'G'}) {
+		t.Fatalf("file does not start with PNG magic: %x...", got[:8])
+	}
+}
+
+// TestUploadEmptyPartIsRejected ensures that an iOS Shortcut quirk — a
+// multipart part with a filename but an empty body — does not silently
+// produce a 0-byte file under the expected name.
+func TestUploadEmptyPartIsRejected(t *testing.T) {
+	ts, _, token, dlDir := newTestServerWithDir(t, clipboard.Content{})
+	defer ts.Close()
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	_, _ = mw.CreateFormFile("file", "IMG_EMPTY.PNG")
+	_ = mw.Close() // part body stays empty
+
+	resp := req(t, "POST", ts.URL+"/file", token, mw.FormDataContentType(), &body)
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode == http.StatusOK {
+		t.Fatalf("empty upload should be rejected; got status=%d body=%s", resp.StatusCode, respBody)
+	}
+	if !bytes.Contains(respBody, []byte("empty")) {
+		t.Fatalf("error message should mention the empty file; got %s", respBody)
+	}
+	if files, _ := os.ReadDir(dlDir); len(files) != 0 {
+		for _, f := range files {
+			info, _ := f.Info()
+			t.Fatalf("server left %s (%d bytes) on disk after rejecting an empty upload", f.Name(), info.Size())
+		}
+	}
+}
+
+// TestUploadFilenameOnlyBodyIsRejected rejects uploads whose body is just
+// the original filename string (another iOS Shortcut quirk) — saving that
+// would otherwise leave a misleading file whose content equals its name.
+func TestUploadFilenameOnlyBodyIsRejected(t *testing.T) {
+	ts, _, token, dlDir := newTestServerWithDir(t, clipboard.Content{})
+	defer ts.Close()
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	p, _ := mw.CreateFormFile("file", "IMG_0042.PNG")
+	_, _ = p.Write([]byte("IMG_0042.PNG"))
+	_ = mw.Close()
+
+	resp := req(t, "POST", ts.URL+"/file", token, mw.FormDataContentType(), &body)
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode == http.StatusOK {
+		t.Fatalf("filename-as-body upload should be rejected; got status=%d body=%s", resp.StatusCode, respBody)
+	}
+	if files, _ := os.ReadDir(dlDir); len(files) != 0 {
+		for _, f := range files {
+			info, _ := f.Info()
+			t.Fatalf("server left %s (%d bytes) on disk after rejecting a filename-as-body upload", f.Name(), info.Size())
+		}
+	}
+}
+
+// TestUploadSmallTextPayloadStillAccepted makes sure the rejection above
+// does not catch legitimate small text payloads (e.g. a one-line note).
+func TestUploadSmallTextPayloadStillAccepted(t *testing.T) {
+	ts, _, token, dlDir := newTestServerWithDir(t, clipboard.Content{})
+	defer ts.Close()
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	p, _ := mw.CreateFormFile("file", "note.txt")
+	_, _ = p.Write([]byte("hello from the iPhone"))
+	_ = mw.Close()
+
+	resp := req(t, "POST", ts.URL+"/file", token, mw.FormDataContentType(), &body)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status=%d body=%s", resp.StatusCode, respBody)
+	}
+	files, _ := os.ReadDir(dlDir)
+	if len(files) != 1 {
+		t.Fatalf("expected 1 file on disk, got %d", len(files))
+	}
+	got, _ := os.ReadFile(filepath.Join(dlDir, files[0].Name()))
+	if string(got) != "hello from the iPhone" {
+		t.Fatalf("text payload was corrupted: %q", got)
+	}
+}
+
+// TestLegacyClipboardRejectsFilenameOnlyFormValue guards the "the PC only
+// receives the title, not the image" bug. When the iOS Shortcut falls
+// back to the urlencoded `clipboard` form and puts just the photo's
+// filename there (a documented 1.5.4 quirk), the server must refuse to
+// write that string to the Windows clipboard as text.
+func TestLegacyClipboardRejectsFilenameOnlyFormValue(t *testing.T) {
+	cases := []string{
+		"IMG_0042.HEIC",
+		"IMG_0042.PNG",
+		"IMG_0042",
+		"photo.png",
+		"微信图片_20260817000108.jpg",
+		"/private/var/mobile/Containers/Data/Application/.../IMG_0042.HEIC",
+	}
+	for _, value := range cases {
+		value := value
+		t.Run(value, func(t *testing.T) {
+			ts, f, token := newTestServer(t, clipboard.Content{Kind: clipboard.Text, Text: "stale"})
+			defer ts.Close()
+			form := url.Values{"clipboard": {value}}.Encode()
+			resp := req(t, "POST", ts.URL+"/clipboard", token, "application/x-www-form-urlencoded", strings.NewReader(form))
+			body, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			if resp.StatusCode != http.StatusBadRequest {
+				t.Fatalf("expected 400 for filename-only value, got %d body=%s", resp.StatusCode, body)
+			}
+			if !bytes.Contains(body, []byte("filename")) {
+				t.Fatalf("error body should mention filename; got %s", body)
+			}
+			f.mu.Lock()
+			defer f.mu.Unlock()
+			if f.content.Kind != clipboard.Text || f.content.Text != "stale" {
+				t.Fatalf("clipboard should be untouched; got kind=%s text=%q", f.content.Kind, f.content.Text)
+			}
+		})
+	}
+}
+
+// TestLegacyClipboardStillAcceptsTextThatLooksAlmostLikeAFilename makes
+// sure the filename guard above does not reject legitimate text payloads
+// just because they happen to contain an image extension or iOS name.
+func TestLegacyClipboardStillAcceptsTextThatLooksAlmostLikeAFilename(t *testing.T) {
+	cases := []string{
+		"please send me report.pdf",
+		"my photo.png is missing — any chance to recover it?",
+		"this is fine, IMG_0042.PNG was just the name",
+		"https://example.com/img.png is the URL",
+	}
+	for _, value := range cases {
+		value := value
+		t.Run(value, func(t *testing.T) {
+			ts, f, token := newTestServer(t, clipboard.Content{})
+			defer ts.Close()
+			form := url.Values{"clipboard": {value}}.Encode()
+			resp := req(t, "POST", ts.URL+"/clipboard", token, "application/x-www-form-urlencoded", strings.NewReader(form))
+			resp.Body.Close()
+			if resp.StatusCode != http.StatusOK {
+				t.Fatalf("expected 200, got %d", resp.StatusCode)
+			}
+			f.mu.Lock()
+			defer f.mu.Unlock()
+			if f.content.Kind != clipboard.Text || f.content.Text != value {
+				t.Fatalf("clipboard should contain the text verbatim; got %q", f.content.Text)
+			}
+		})
+	}
+}
+
+// TestUploadUndecodableImageStillSavesFile is the companion to the warn
+// log added in savePart: an image whose format Go's image decoder cannot
+// read (here a fake HEIC magic prefix) must still be persisted to disk,
+// but the Windows clipboard must not be silently overwritten with empty
+// bytes.
+func TestUploadUndecodableImageStillSavesFile(t *testing.T) {
+	ts, f, token, dlDir := newTestServerWithDir(t, clipboard.Content{Kind: clipboard.Text, Text: "previous"})
+	defer ts.Close()
+	heicBytes := []byte{0x00, 0x00, 0x00, 0x18, 'f', 't', 'y', 'p', 'h', 'e', 'i', 'c'}
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	p, _ := mw.CreateFormFile("file", "IMG_0042.HEIC")
+	_, _ = p.Write(heicBytes)
+	_ = mw.Close()
+
+	resp := req(t, "POST", ts.URL+"/file", token, mw.FormDataContentType(), &body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status=%d", resp.StatusCode)
+	}
+	files, _ := os.ReadDir(dlDir)
+	if len(files) != 1 {
+		t.Fatalf("expected 1 file on disk, got %d", len(files))
+	}
+	got, _ := os.ReadFile(filepath.Join(dlDir, files[0].Name()))
+	if !bytes.Equal(got, heicBytes) {
+		t.Fatalf("HEIC bytes were not preserved verbatim: got %x want %x", got, heicBytes)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.content.Kind != clipboard.Text || f.content.Text != "previous" {
+		t.Fatalf("clipboard must remain at the previous text entry; got kind=%s text=%q", f.content.Kind, f.content.Text)
 	}
 }
