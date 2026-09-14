@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -19,6 +20,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -232,8 +234,15 @@ func (s *Server) getClipboardLegacy(w http.ResponseWriter, _ *http.Request) {
 
 func (s *Server) postClipboardLegacy(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, min(s.cfg.MaxUploadBytes, 64<<20))
+	// P1 diagnostic: capture what the iPhone actually sends to /clipboard
+	// so we can see whether the request is multipart with HEIC bytes or
+	// a urlencoded form carrying just the filename. Keep this entry-level
+	// log tiny; per-part logging lives in imageFromMultipart.
+	s.log.Info("clipboard upload entry",
+		"content_type", r.Header.Get("Content-Type"),
+		"content_length", r.ContentLength)
 	if strings.HasPrefix(strings.ToLower(r.Header.Get("Content-Type")), "multipart/form-data") {
-		pngData, err := imageFromMultipart(r)
+		pngData, err := imageFromMultipart(s, r)
 		if err != nil {
 			writeJSON(w, http.StatusBadRequest, response{false, err.Error(), nil})
 			return
@@ -250,6 +259,10 @@ func (s *Server) postClipboardLegacy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	text := r.FormValue("clipboard")
+	s.log.Info("clipboard form text",
+		"value_len", len(text),
+		"value_preview", previewASCII(text, 64),
+		"value_hex_prefix", hexPrefix(text, 32))
 	if text == "" {
 		writeJSON(w, http.StatusBadRequest, response{false, "iPhone clipboard is empty", nil})
 		return
@@ -262,11 +275,107 @@ func (s *Server) postClipboardLegacy(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, response{true, "Send successful", nil})
 		return
 	}
+	// The AirDropPlus 1.5.4 signed shortcut has been observed to send the
+	// shared file's name (e.g. "IMG_0042.HEIC") as the form value of
+	// "clipboard" when its multipart detector fails. Without this guard the
+	// PC happily writes the filename string into the Windows clipboard,
+	// which the user sees as "received only the title". Treat any value
+	// that looks like a single filename as a malformed image upload.
+	if reason, ok := filenameOnlyReason(text); ok {
+		s.log.Warn("clipboard form rejected as filename-only",
+			"value_preview", previewASCII(text, 64),
+			"reason", reason)
+		writeJSON(w, http.StatusBadRequest, response{false, reason, nil})
+		return
+	}
 	if err := s.clip.WriteText(text); err != nil {
 		writeJSON(w, http.StatusInternalServerError, response{false, err.Error(), nil})
 		return
 	}
 	writeJSON(w, http.StatusOK, response{true, "Send successful", nil})
+}
+
+// filenameOnlyReason reports whether v looks like a single filename or path
+// (i.e. an iOS Shortcut quirk that sent the file's name instead of its
+// content). It returns the human-readable reason and true when matched so
+// the server can reject it without polluting the Windows clipboard.
+//
+// The check is deliberately narrow: real text payloads that happen to
+// contain an image extension or a slash must still be accepted. Anything
+// that is purely a filename (no whitespace, no sentence punctuation,
+// ends with a known media extension or matches an iOS photo name) is
+// treated as the documented iOS quirk.
+func filenameOnlyReason(v string) (string, bool) {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return "", false
+	}
+	// No whitespace => a single token, which is exactly what iOS Shortcuts
+	// leaks when "Get Contents of URL" resolves to a filename instead of
+	// the binary.
+	if strings.ContainsAny(v, " \t\r\n　") {
+		return "", false
+	}
+	// Sentence punctuation (comma, semicolon, colon, question mark,
+	// exclamation mark) means the value is prose, not a filename. The
+	// period is intentionally allowed: real filenames like
+	// "IMG_0042.HEIC" or "/a/b/photo.png" always contain a dot, and
+	// excluding them here would let the documented iOS quirk slip past.
+	if strings.ContainsAny(v, ",;:?!") {
+		return "", false
+	}
+	lower := strings.ToLower(v)
+	// Common image, video and document extensions the iPhone share sheet
+	// would send. Matching here is safe because the prior whitespace /
+	// punctuation check already removed real prose.
+	mediaExts := []string{
+		".heic", ".heif", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tiff",
+		".mov", ".mp4", ".m4v", ".3gp",
+		".pdf",
+	}
+	for _, ext := range mediaExts {
+		if strings.HasSuffix(lower, ext) {
+			return fmt.Sprintf("clipboard form value %q looks like a filename; send the image as multipart to /file or Base64 JSON to /api/v1/clipboard", v), true
+		}
+	}
+	// iOS photo names follow the IMG_<digits>[_<suffix>] pattern. Matching
+	// this explicitly lets us flag a name like "IMG_0042" even when iOS
+	// forgot to append the extension (another known quirk).
+	if iosPhotoName.MatchString(v) {
+		return fmt.Sprintf("clipboard form value %q looks like an iOS photo name; send the image bytes, not its filename", v), true
+	}
+	return "", false
+}
+
+// iosPhotoName matches typical iPhone camera filenames: "IMG_0042",
+// "IMG_0042_1", "IMG_E0042", etc. The pattern intentionally allows
+// optional underscores and letters before the trailing digits so that
+// HDR / live / portrait variants are also caught.
+var iosPhotoName = regexp.MustCompile(`^IMG_[A-Z]*\d+(?:_\d+)?$`)
+
+// previewASCII returns the first n bytes of s as a printable string,
+// substituting '·' for non-printable runes so log lines stay one line.
+func previewASCII(s string, n int) string {
+	if len(s) > n {
+		s = s[:n]
+	}
+	var b strings.Builder
+	for _, r := range s {
+		if r >= 0x20 && r < 0x7f || r == '\n' || r == '\r' || r == '\t' {
+			b.WriteRune(r)
+		} else {
+			b.WriteByte('·')
+		}
+	}
+	return b.String()
+}
+
+// hexPrefix returns the first n bytes of s as hex, capped safely.
+func hexPrefix(s string, n int) string {
+	if n > len(s) {
+		n = len(s)
+	}
+	return hex.EncodeToString([]byte(s[:n]))
 }
 
 func inlineImage(value string) ([]byte, bool) {
@@ -287,7 +396,7 @@ func inlineImage(value string) ([]byte, bool) {
 	return pngData, err == nil
 }
 
-func imageFromMultipart(r *http.Request) ([]byte, error) {
+func imageFromMultipart(s *Server, r *http.Request) ([]byte, error) {
 	mr, err := r.MultipartReader()
 	if err != nil {
 		return nil, fmt.Errorf("multipart image required: %w", err)
@@ -301,16 +410,49 @@ func imageFromMultipart(r *http.Request) ([]byte, error) {
 			return nil, err
 		}
 		isCandidate := part.FileName() != "" || part.FormName() == "clipboard" || strings.HasPrefix(strings.ToLower(part.Header.Get("Content-Type")), "image/")
+		s.log.Info("clipboard multipart part",
+			"file_name", part.FileName(),
+			"form_name", part.FormName(),
+			"content_type", part.Header.Get("Content-Type"),
+			"is_candidate", isCandidate)
 		if !isCandidate {
 			part.Close()
 			continue
 		}
-		pngData, decodeErr := imageAsPNG(part)
+		// P1 diagnostic: tee the body through a counter so we know how
+		// many bytes the iPhone actually sent without breaking image.Decode,
+		// which needs to see the magic bytes at the very start of the stream.
+		counter := &readCounter{}
+		body := io.TeeReader(part, counter)
+		pngData, decodeErr := imageAsPNG(body)
 		part.Close()
+		s.log.Info("clipboard multipart part result",
+			"file_name", part.FileName(),
+			"form_name", part.FormName(),
+			"bytes_read", counter.n,
+			"decode_ok", decodeErr == nil,
+			"decode_error", errString(decodeErr))
 		if decodeErr == nil {
 			return pngData, nil
 		}
 	}
+}
+
+// readCounter is an io.Writer that records how many bytes were passed in
+// (used as the sink of an io.TeeReader to learn the size of a multipart
+// part body without consuming the bytes themselves).
+type readCounter struct{ n int64 }
+
+func (c *readCounter) Write(p []byte) (int, error) {
+	c.n += int64(len(p))
+	return len(p), nil
+}
+
+func errString(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
 }
 
 func (s *Server) uploadFileLegacy(w http.ResponseWriter, r *http.Request) {
@@ -380,22 +522,82 @@ func (s *Server) savePart(part *multipart.Part) (string, error) {
 			os.Remove(path)
 		}
 	}()
-	if _, err := io.Copy(f, part); err != nil {
+	written, err := io.Copy(f, part)
+	if err != nil {
 		return "", err
 	}
 	if err := f.Close(); err != nil {
 		return "", err
 	}
+	if err := checkUploadBody(name, part.FileName(), path, written); err != nil {
+		return "", err
+	}
 	ok = true
-	s.log.Info("file received", "name", filepath.Base(path))
+	s.log.Info("file received", "name", filepath.Base(path), "bytes", written)
 	if s.cfg.ImageUploadClipboard {
-		if pngData, err := fileAsPNG(path); err == nil {
-			if err := s.clip.WritePNG(pngData); err != nil {
-				s.log.Warn("image saved but clipboard update failed", "error", err)
-			}
+		pngData, decodeErr := fileAsPNG(path)
+		if decodeErr != nil {
+			// Common case is the iPhone sending HEIC/HEIF bytes — Go's
+			// image.Decode only supports PNG/JPEG/GIF, so the file lands
+			// on disk but the clipboard stays at whatever was there before.
+			// Surface this loudly so the user doesn't think the upload
+			// silently produced an empty clipboard entry.
+			s.log.Warn("image saved but clipboard update skipped: decoder does not support this format",
+				"name", filepath.Base(path),
+				"bytes", written,
+				"decode_error", decodeErr.Error())
+		} else if err := s.clip.WritePNG(pngData); err != nil {
+			s.log.Warn("image saved but clipboard update failed",
+				"name", filepath.Base(path),
+				"error", err.Error())
 		}
 	}
 	return filepath.Base(path), nil
+}
+
+// checkUploadBody rejects uploads that look like an iOS Shortcut quirk:
+// the multipart part has a filename but no real file content. Saving those
+// silently produces either a 0-byte file or a tiny file whose body is just
+// the filename string, leaving the Windows side with "name only, no content".
+func checkUploadBody(sanitizedName, rawName, path string, written int64) error {
+	if written == 0 {
+		return fmt.Errorf("received file %q is empty; check the iOS shortcut's file field", sanitizedName)
+	}
+	// Heuristic: very small bodies that look like a single text token are
+	// almost certainly the filename itself (or a path) leaking through as
+	// the part body. Anything binary or larger than a few hundred bytes is
+	// assumed legitimate even if it happens to look like a filename.
+	if written > 512 {
+		return nil
+	}
+	body, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	trimmed := strings.TrimSpace(string(body))
+	if trimmed == "" {
+		return fmt.Errorf("received file %q is empty; check the iOS shortcut's file field", sanitizedName)
+	}
+	if isLikelyNameEcho(trimmed, sanitizedName, rawName) {
+		return fmt.Errorf("received file %q contains only its name; check the iOS shortcut's file field", sanitizedName)
+	}
+	return nil
+}
+
+func isLikelyNameEcho(body, sanitizedName, rawName string) bool {
+	candidates := []string{sanitizedName, rawName}
+	for _, c := range candidates {
+		if c == "" {
+			continue
+		}
+		if body == c {
+			return true
+		}
+		if base := filepath.Base(c); base != "" && body == base {
+			return true
+		}
+	}
+	return false
 }
 
 func fileAsPNG(path string) ([]byte, error) {
