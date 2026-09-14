@@ -7,9 +7,12 @@
   ],
   "menu": {
     "发送": [
-      "If Shortcut Input exists, repeat each item and POST multipart field 'file' to {base_url}/file",
-      "Otherwise get clipboard; if image, base64 encode and POST JSON {type:image,data:<base64>} to {base_url}/api/v1/clipboard",
-      "Otherwise POST form field 'clipboard' to {base_url}/clipboard"
+      "If Shortcut Input exists and is an image, Base64 encode it and POST JSON {type:image,data:<base64>} to {base_url}/api/v1/clipboard with headers Authorization={token} and ShortcutVersion=1.5.4. This avoids the iOS 1.5.4 multipart quirk where the file field body collapses to the filename.",
+      "If Shortcut Input exists and is not an image, repeat each item. Skip the iteration entirely if Get File Size of the item returns 0.",
+      "For each remaining item, POST multipart field 'file' (binary) to {base_url}/file with headers Authorization={token} and ShortcutVersion=1.5.4.",
+      "If HTTP status is not 200, show the response body via Show Notification so the user can see why the upload was rejected.",
+      "Otherwise get iPhone clipboard; if image, Base64 encode and POST JSON {type:image,data:<base64>} to {base_url}/api/v1/clipboard",
+      "Otherwise POST form field 'clipboard' to {base_url}/clipboard. Do NOT send the filename of the shared image here — the server rejects values that look like a single filename (HTTP 400 'looks like a filename') to prevent the Windows clipboard from being polluted with the photo's title."
     ],
     "接收": [
       "GET {base_url}/clipboard",
@@ -20,5 +23,12 @@
     "测试": ["GET {base_url}/ with Authorization and ShortcutVersion headers"]
   },
   "headers": {"Authorization": "{token}", "ShortcutVersion": "1.5.4"},
-  "share_sheet_types": ["Files", "Images", "Media", "PDFs", "Text", "URLs"]
+  "share_sheet_types": ["Files", "Images", "Media", "PDFs", "Text", "URLs"],
+  "send_failure_codes": {
+    "400 empty": "收到空 part（iPhone 端 file 字段没取到二进制），检查「获取 URL 内容」动作是否正确把图片/文件对象作为 file 字段传入",
+    "400 contains only its name": "iPhone 端 file 字段 body 退化成文件名字符串；通常是把变量名当成了内容。改用 Get Contents of URL 时把 file 字段的「类型」设为 File，并把图片/文件变量直接拖入值",
+    "400 looks like a filename": "/clipboard 表单里只放了文件名字符串，不是图片内容。把图片改走 /api/v1/clipboard 的 JSON Base64 接口，或 /file 的 multipart 二进制接口",
+    "401 invalid token": "Authorization 头的 token 与 dist/data/config.json 不一致",
+    "413 request body too large": "单文件超过 max_upload_bytes（默认 1 GiB）；可在配置中调高"
+  }
 }

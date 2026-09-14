@@ -1,14 +1,27 @@
 # 验证记录
 
-验证日期：2026-08-11（Windows 11，Go 1.26.5 windows/amd64）。
+验证日期：2026-08-12（Windows 11，Go 1.26.5 windows/amd64）；最近一次更新 2026-09-14，针对"iPhone → PC 只收到图片标题"的修复。
 
 已通过：
 
-- `go test ./...`：全部通过；覆盖配置、鉴权、文字/图片剪贴板模拟、文件上传、重名、文件引用下载、DIB/DIBV5/Alpha 转换。
+- `go test ./...`：全部通过；覆盖配置、鉴权、双向文字/图片剪贴板模拟、两页历史淘汰、Markdown/PNG 归档、时间戳、历史去重和 64 MiB 内存上限、文件上传、重名、文件引用下载、DIB/DIBV5/Alpha 转换，以及 iPhone 1.5.4 quirk 防护（multipart 空 part、文件名回填、urlencoded `/clipboard` 纯文件名表单 → 400 且不污染剪贴板）和 HEIC 不可解码时的落盘路径。
 - `go vet -unsafeptr=false ./...`：通过。只排除 Win32 `GlobalLock` 必需的指针转换启发式告警，其他分析器保持启用。
-- `scripts/Build.ps1`：成功生成 Windows amd64 原生单文件 `dist/AirDropPlus-Go.exe`。
-- EXE SHA-256：`7AD0591587DE8FE6704F36DFBA938C97645CF36BB3C6332496BC4419548B3523`。
-- `scripts/Smoke-Test.ps1`：真实隐藏进程启动成功；`/healthz` 返回 `0.1.0`；无 token 请求返回 401；带 token 的 multipart 文件上传成功；第二实例被命名互斥量拒绝且未覆盖 PID；测试副本删除；测试进程按 PID 停止。
+- `scripts/Build.ps1 -Version 0.3.4` 成功生成原生 Windows GUI 构建，`/healthz` 返回 `0.3.4`；EXE SHA-256：`2FCA4B5401353F9C2249E2F46751AB57D261D0C5709849D8B7C378495D54B928`。
+- `scripts/Build.ps1 -Version 0.4.0` 成功生成原生 Windows GUI 构建，`/healthz` 返回 `0.4.0`；EXE SHA-256：`8B2D71192E6BA086CAE5AAAAF2FF302A1FC60AC1054D9DD2AFD8FF83DA4FEF60`。新增 iPhone 1.5.4 quirk 防护与 HEIC 落盘路径测试均通过；其余历史验证项未受影响。
+- 高 DPI 运行验证：当前显示器为 240 DPI（250%），进程成功启用 Per-Monitor DPI Awareness V2；390×548 逻辑窗口直接绘制为 975×1370 物理像素，字体、边框、圆角、缩略图和点击区域同步缩放，不再由 Windows 做 2.5 倍位图插值。缩略图缓存按物理绘制尺寸生成，使用 HALFTONE 缩放，并在 `WM_DPICHANGED` 后重建。
+- 视觉锐度修正：品牌标题外的所有 UI 文字统一使用本机已验证安装的 Microsoft YaHei UI；标题 600、正文 400，正文/次要/弱提示颜色下限为 `#333333`/`#666666`/`#707070`，边框为不透明 `#D8D8D8`，未通过父级 opacity 降低文字对比度。
+- 连续模拟 7 条带鉴权 iPhone 文字发送：界面保留最新 6 条，第 1 条写入当日 Markdown，第 7 条未提前归档；归档标题含 RFC 3339 纳秒时间戳和 `+08:00` 时区。验证生成物已清除后重启。
+- 归档写入失败路径测试：文档未成功落盘时旧条目不会从内存列表淘汰，避免静默丢失。
+- 图片文件名降级回归测试：兼容 `/clipboard` 的 multipart 图片及内嵌 Base64 图片均解码为真实 PNG；96×54 实际请求返回 `type=image`、尺寸 96×54、199 字节 PNG，未返回文件名。缩略图单元测试同时校验解码后的 BGRA 像素。
+- 真实隐藏进程启动成功；无 token 请求返回 401；带 token 的 iPhone → PC 文字与 PNG 写入成功；PC → iPhone 鉴权读取返回相同文字与有效 PNG。
+- 托盘 UI 使用 Win32/GDI、系统剪贴板事件和进程内通知；不包含 Electron、Chromium 或 WebView。手机侧最新一次写入只将托盘状态灯切为绿色，不展开面板；点击图标后复位灰灯并展开，面板 10 秒空闲后隐藏。
+- 文字和图片往返测试后 5 秒采样：CPU 时间增加 0.031 秒，工作集 25.2 MiB，私有内存 52.4 MiB。重启清空历史后的纯空闲 5 秒采样：CPU 时间增加 0 秒，工作集 15.6 MiB，私有内存 46.8 MiB，11 个线程。
+- 0.3.0 归档验证清理并重启后的纯空闲 5 秒采样：CPU 时间增加 0 秒，工作集 15.3 MiB，私有内存 46.8 MiB，8 个线程。
+- 0.3.1 图片兼容修复后的纯空闲 5 秒采样：CPU 时间增加 0 秒，工作集 15.2 MiB，私有内存 46.7 MiB，11 个线程。
+- 0.3.2 高 DPI 原生重绘后的纯空闲 5 秒采样：CPU 时间增加 0 秒，工作集 15.2 MiB，私有内存 46.6 MiB，11 个线程；DPI 修复未引入持续性能开销。
+- 0.3.3 字体与对比度修正后的纯空闲 5 秒采样：CPU 时间增加 0 秒，工作集 15.3 MiB，私有内存 46.7 MiB，11 个线程；视觉锐度修正未引入持续性能开销。
+- 0.3.4 PC → iPhone 现场修复：真实 iPhone 的两次 `GET /clipboard` 已到达服务；现场返回 `PC clipboard sharing is disabled`，确认网络、固定地址和鉴权均正常。恢复默认开启后，同一兼容接口返回当前 Windows 文字剪贴板；面板开关缩短为可完整显示的“PC 共享：开/关”，避免状态末尾被裁切。
+- Charter 字体从 `dist/fonts` 以 `FR_PRIVATE` 方式加载，退出时移除，不注册或修改 Windows 系统字体。
 - 管理脚本：隐藏启动、状态查询、重复启动保护、精确停止、停止后非运行状态均验证通过。
 - PowerShell 解析器：`scripts/*.ps1` 全部无语法错误。
 

@@ -8,6 +8,13 @@
 - iPhone → Windows 剪贴板：文字、PNG 图片
 - Windows → iPhone 剪贴板：文字、图片、资源管理器中复制的文件
 - 兼容 AirDropPlus 1.5 已签名 iOS 快捷指令的 `/file`、`/clipboard` 接口
+- Windows 11 原生托盘小面板：每页 3 条、最多 2 页，支持长文本完整展开和图片缩略图
+- Per-Monitor DPI Aware V2：在 125%–250% 等高缩放屏幕上按原生像素重绘，不由 Windows 放大模糊位图
+- 品牌标题保留 Bitstream Charter；中文、英文混排正文及控件统一使用 Windows 原生 Microsoft YaHei UI，并采用不低于 `#707070` 的弱提示对比度
+- iPhone 图片无论走 JSON 图片接口、`/file` 上传或兼容 `/clipboard` 图片表单，均统一进入真实图片历史，不以文件名代替
+- 第 7 条起的旧内容自动归档到 `dist/data/clipboard-archive/YYYY-MM-DD.md`；图片另存到 `assets/`，每条均带精确时间戳
+- 双状态托盘图标：灰灯表示待命，手机最新一次 `Send` 后切为绿灯；点击图标确认并复位，不自动展开
+- PC 剪贴板共享开关（面板明确显示“PC 共享：开/关”）；iPhone 使用 `Receive` 拉取当前 PC 文字、图片或文件
 - 独立的新 `/api/v1` 接口
 - 随机 192 位令牌鉴权、固定端口、上传大小限制、不向客户端泄露 Windows 文件路径
 - 单实例保护、后台启动、状态查询和精确停止脚本（不注册服务，不设置开机启动）
@@ -15,16 +22,19 @@
 
 ## 目录原则
 
-此目录是项目的唯一源码位置。运行期私密配置、接收文件与构建产物也位于此目录下，但已被 `.gitignore` 排除：
+此目录是项目的唯一源码位置。运行期私密配置、剪贴板归档、接收文件与构建产物也位于此目录下，但已被 `.gitignore` 排除：
 
 ```text
 AirDropPlus-Go/
 ├─ cmd/                 程序入口
 ├─ internal/            服务、配置、Windows 剪贴板实现
+├─ assets/fonts/        应用私有 Charter 字体及许可
+├─ opendesign/          UI 原型与可交互预览
 ├─ shortcuts/           自有快捷指令蓝图
 ├─ scripts/             构建、后台启动、精确停止
 └─ dist/                Windows 可执行文件与运行期内容
    ├─ data/             首次运行生成的私密配置
+   │  └─ clipboard-archive/  超出两页的剪贴板 Markdown 与图片
    └─ received/         默认接收目录
 ```
 
@@ -108,6 +118,7 @@ X-AirDropPlus-Token: <token>
 
 - 这是可信家庭/个人局域网工具，不应直接映射到公网。
 - token 只存在于被忽略的运行期配置与 iPhone 快捷指令中，不提交到 GitHub。
+- 剪贴板归档是本机明文 Markdown/PNG，位于被 Git 忽略的 `dist/data/clipboard-archive/`；其中可能包含敏感内容，应按个人文档保护。
 - Windows 文件下载只接受服务端刚为当前剪贴板文件签发的随机引用，不接受任意本机路径；引用 10 分钟后过期。
 - HTTP 在局域网内未加密；如果网络中存在不可信设备，应改用可信热点或在系统层使用 VPN。
 - Windows 防火墙第一次启动时可能请求允许访问；只需允许“专用网络”，不要允许公用网络。
@@ -120,10 +131,18 @@ go vet -unsafeptr=false ./...
 .\scripts\Build.ps1
 ```
 
-测试覆盖鉴权、文字与图片模拟剪贴板、文件上传清洗/重名、Windows 路径不泄露、临时文件引用下载、重复实例拒绝，以及 DIB/DIBV5 ↔ PNG 像素和 Alpha 转换。真实 iPhone 导入、权限和局域网联调按当前阶段要求暂不执行。
+测试覆盖鉴权、双向文字与图片模拟剪贴板、历史去重和内存上限、文件上传清洗/重名、Windows 路径不泄露、临时文件引用下载、重复实例拒绝、iPhone 1.5.4 quirk（multipart 文件体回填成文件名、urlencoded `/clipboard` 只放文件名）、HEIC 不可解码时仍正确落盘，以及 DIB/DIBV5 ↔ PNG 像素和 Alpha 转换。真实 iPhone 导入、权限和局域网联调按当前阶段要求暂不执行。
+
+## iPhone 端常见故障码
+
+服务端对已知的 iOS 1.5.4 quirk 全部返回 HTTP 400，错误信息中直接说明原因，iPhone 端用“显示通知”动作展示响应原文即可看到具体是哪一种：
+
+- `received file "..." is empty`：`/file` 的 multipart part body 为空。
+- `received file "..." contains only its name`：`/file` 的 multipart part body 退化为文件名字符串。
+- `clipboard form value "..." looks like a filename`：`/clipboard` 的 urlencoded 表单里只放了图片文件名而非图片内容。本项目自有蓝图已把分享图片改为走 `/api/v1/clipboard` JSON Base64，避开这条降级路径。
 
 `unsafeptr` 是唯一关闭的 vet 分析器：Win32 `GlobalLock` 通过系统调用返回原始指针值，Go 必须在这个很小的 FFI 边界把它转换成字节视图。其他 vet 分析器保持启用。
 
 ## 来源与许可
 
-本项目是独立 Go 重写，受 `yeyt97/AirDropPlus` 启发，并按其公开 API 文档提供兼容层。两者均使用 MIT License；详情见 [NOTICE](NOTICE)。
+本项目是独立 Go 重写，受 `yeyt97/AirDropPlus` 启发，并按其公开 API 文档提供兼容层。两者均使用 MIT License。Windows 包私有加载 Bitstream Charter，不修改系统字体；字体许可随包保留。详情见 [NOTICE](NOTICE)。

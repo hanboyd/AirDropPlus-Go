@@ -5,5 +5,7 @@
   "download_dir": "received",
   "max_upload_bytes": 1073741824,
   "image_upload_to_clipboard": true,
-  "legacy_shortcut_version": "1.5"
+  "legacy_shortcut_version": "1.5",
+  "history_limit": 6,
+  "share_pc_clipboard": true
 }

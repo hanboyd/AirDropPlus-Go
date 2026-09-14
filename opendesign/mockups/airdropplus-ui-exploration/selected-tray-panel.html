@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>AirDropPlus-Go｜选定方案状态稿</title>
+  <style>
+    :root { --paper:#f8f7f3; --surface:rgba(255,255,255,.88); --ink:#1c1c1e; --secondary:#777570; --line:#e2e0da; --blue:#2968ab; --green:#43b567; --red:#ba3730; }
+    * { box-sizing:border-box; }
+    body { margin:0; min-height:100vh; color:var(--ink); background:#d9dde1; font-family:"Segoe UI","Microsoft YaHei UI",sans-serif; }
+    .en { font-family:"Charter","Georgia",serif; }
+    .desktop { min-height:100vh; padding:54px 6vw 90px; background:radial-gradient(circle at 60% 20%,#eef2f5 0,#d9dde1 48%,#cdd1d5 100%); position:relative; overflow:hidden; }
+    .desktop::after { content:""; position:absolute; inset:auto 0 0; height:48px; background:rgba(247,248,249,.92); border-top:1px solid rgba(0,0,0,.09); backdrop-filter:blur(18px); }
+    header { max-width:1100px; margin:0 auto 30px; }
+    h1 { font:600 34px/1.1 "Charter","Georgia",serif; margin:0 0 8px; }
+    header p { margin:0; color:#62615e; }
+    .states { max-width:1100px; margin:auto; display:grid; grid-template-columns:260px 390px 390px; gap:24px; align-items:end; }
+    .stage { position:relative; }
+    .label { margin:0 0 9px 3px; font-size:13px; color:#565551; letter-spacing:.03em; }
+    .tray { height:48px; display:flex; align-items:center; gap:9px; background:rgba(255,255,255,.9); border:1px solid rgba(0,0,0,.1); padding:0 12px; border-radius:12px; box-shadow:0 8px 28px rgba(0,0,0,.13); }
+    .tray-dot { width:13px; height:13px; border-radius:50%; background:var(--green); box-shadow:0 0 0 4px rgba(67,181,103,.14); }
+    .tray strong { font-size:14px; font-weight:500; }
+    .tray span { margin-left:auto; color:var(--secondary); font-size:12px; }
+    .panel { width:390px; min-height:548px; padding:18px; background:rgba(248,247,243,.94); border:1px solid rgba(0,0,0,.08); border-radius:20px; box-shadow:0 24px 80px rgba(20,24,28,.22),0 4px 16px rgba(20,24,28,.09); backdrop-filter:blur(28px) saturate(1.1); }
+    .panel-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; }
+    .panel-head h2 { margin:0; font:600 23px/1 "Charter","Georgia",serif; }
+    .quiet { color:var(--secondary); font-size:12px; }
+    .device { display:grid; grid-template-columns:14px 1fr auto; gap:10px; align-items:center; background:var(--surface); border:1px solid var(--line); border-radius:15px; padding:14px; }
+    .device .dot { width:12px; height:12px; border-radius:50%; background:var(--green); }
+    .device strong { font-size:15px; font-weight:500; }
+    .device .meta { font-size:12px; color:var(--secondary); margin-top:2px; }
+    .switch { width:94px; border:0; border-radius:999px; padding:7px 9px; background:var(--blue); color:white; font:12px inherit; }
+    .section-title { display:flex; justify-content:space-between; align-items:center; margin:18px 2px 9px; }
+    .section-title strong { font-size:16px; font-weight:550; }
+    .cards { display:grid; gap:8px; }
+    .card { background:var(--surface); border:1px solid var(--line); border-radius:14px; padding:12px 13px 9px; box-shadow:0 1px 1px rgba(0,0,0,.025); }
+    .card p { font-family:"Segoe UI","Microsoft YaHei UI",sans-serif; font-size:14px; line-height:1.45; margin:0 0 8px; }
+    .card-foot { display:flex; align-items:center; justify-content:space-between; color:var(--secondary); font-size:11px; }
+    .actions { display:flex; gap:12px; color:var(--blue); }
+    .actions .danger { color:var(--red); }
+    .image-card { display:grid; grid-template-columns:74px 1fr; gap:12px; align-items:center; }
+    .thumb { width:74px; height:68px; border-radius:10px; background:linear-gradient(145deg,#ced9df,#8ba1ae 52%,#e0c8a2 53%,#b58f63); position:relative; overflow:hidden; }
+    .thumb::after { content:""; position:absolute; width:34px; height:34px; border-radius:50%; background:#f1db9b; right:7px; top:7px; opacity:.85; }
+    .image-info strong { font-size:14px; font-weight:500; }
+    .image-info div { color:var(--secondary); font-size:11px; margin:3px 0 12px; }
+    .auto { text-align:center; color:var(--secondary); font-size:11px; margin:14px 0 0; }
+    .toast { position:absolute; left:-16px; top:-64px; width:360px; display:flex; gap:12px; align-items:center; background:rgba(255,255,255,.94); border:1px solid rgba(0,0,0,.08); border-radius:17px; padding:12px 14px; box-shadow:0 16px 46px rgba(0,0,0,.18); }
+    .toast .mark { width:38px; height:38px; display:grid; place-items:center; border-radius:12px; background:#e5f4ea; color:#267a42; font-weight:700; }
+    .toast strong { font-size:14px; font-weight:550; }
+    .toast p { margin:2px 0 0; color:var(--secondary); font-size:12px; }
+    .flow { max-width:1100px; margin:34px auto 0; padding:18px 22px; border:1px solid rgba(0,0,0,.12); border-radius:16px; background:rgba(255,255,255,.5); display:flex; align-items:center; justify-content:center; gap:14px; color:#55534f; font-size:13px; }
+    .flow b { color:var(--ink); font-weight:550; }
+    .arrow { color:#8d8a84; }
+    @media(max-width:1000px){.states{grid-template-columns:1fr}.stage{display:grid;justify-content:center}.toast{display:none}.flow{flex-wrap:wrap}}
+    @media(max-width:440px){
+      .desktop{padding:28px 12px 70px}.states{width:100%;gap:18px}.stage{display:block;width:100%}.panel,.tray{width:100%}
+      .panel{padding:14px;border-radius:17px}.device{grid-template-columns:14px 1fr}.switch{grid-column:2;width:max-content;margin-top:5px}
+      .section-title{align-items:flex-start;gap:8px}.section-title .quiet{text-align:right}.card-foot{align-items:flex-start;gap:8px;flex-wrap:wrap}.actions{margin-left:auto;flex-wrap:wrap;justify-content:flex-end}
+      .image-card{grid-template-columns:64px 1fr}.thumb{width:64px;height:62px}.flow{padding:14px;gap:8px}
+    }
+  </style>
+</head>
+<body>
+  <main class="desktop">
+    <header><h1>AirDropPlus-Go</h1><p>选定方向：托盘常驻、空闲折叠、收到内容时自动浮出。</p></header>
+    <section class="states">
+      <div class="stage"><div class="label">01 · 空闲折叠</div><div class="tray"><span class="tray-dot"></span><strong>iPhone 已连接</strong><span>刚刚</span></div></div>
+      <div class="stage"><div class="label">02 · 手动打开</div><div class="panel">
+        <div class="panel-head"><h2>AirDropPlus</h2><span class="quiet">空闲 10 秒后隐藏</span></div>
+        <div class="device"><span class="dot"></span><div><strong>iPhone 已连接</strong><div class="meta">192.168.1.50 · 刚刚</div></div><button class="switch">PC 共享：开</button></div>
+        <div class="section-title"><strong>最近剪贴板</strong><span class="quiet">仅本次运行 · 10 条</span></div>
+        <div class="cards"><article class="card"><p>UI 使用第一个方案：最小托盘小面板。</p><div class="card-foot"><span>来自 iPhone · 08:31</span><span class="actions"><i>复制</i><i>置顶</i><i class="danger">删除</i></span></div></article><article class="card"><p>PC 上复制的内容也可以开放给手机读取。</p><div class="card-foot"><span>来自 PC · 08:29</span><span class="actions"><i>复制</i><i>置顶</i><i class="danger">删除</i></span></div></article><article class="card image-card"><div class="thumb"></div><div class="image-info"><strong>图片剪贴板</strong><div>来自 iPhone · 3024 × 4032</div><span class="actions"><i>复制图片</i><i>置顶</i><i class="danger">删除</i></span></div></article></div>
+        <p class="auto">点击托盘图标打开 · 窗口关闭后服务继续运行</p>
+      </div></div>
+      <div class="stage"><div class="label">03 · 手机内容到达</div><div class="toast"><div class="mark">↓</div><div><strong>收到 iPhone 剪贴板</strong><p>面板已自动展开，10 秒无操作后折叠</p></div></div><div class="panel">
+        <div class="panel-head"><h2>AirDropPlus</h2><span class="quiet">刚刚收到</span></div>
+        <div class="device"><span class="dot"></span><div><strong>iPhone 已连接</strong><div class="meta">192.168.1.50 · 刚刚</div></div><button class="switch">PC 共享：开</button></div>
+        <div class="section-title"><strong>新内容</strong><span class="quiet">自动写入 Windows 剪贴板</span></div>
+        <div class="cards"><article class="card image-card"><div class="thumb"></div><div class="image-info"><strong>图片剪贴板</strong><div>来自 iPhone · 刚刚</div><span class="actions"><i>复制图片</i><i>置顶</i><i class="danger">删除</i></span></div></article><article class="card"><p>刚从手机发送过来的文字会排在最前面。</p><div class="card-foot"><span>来自 iPhone · 刚刚</span><span class="actions"><i>复制</i><i>置顶</i><i class="danger">删除</i></span></div></article></div>
+        <div class="section-title"><strong>较早</strong><span class="quiet">8 条</span></div><div class="cards"><article class="card"><p>PC 剪贴板历史内容……</p><div class="card-foot"><span>来自 PC · 08:29</span><span class="actions"><i>复制</i><i>置顶</i><i class="danger">删除</i></span></div></article></div>
+      </div></div>
+    </section>
+    <div class="flow"><b>PC 复制</b><span class="arrow">→</span><span>Windows 事件监听</span><span class="arrow">→</span><span>最近历史 / 等待手机 Receive</span><span class="arrow">↔</span><span>iPhone 快捷指令</span></div>
+  </main>
+</body>
+</html>

@@ -25,9 +25,30 @@
 
 ### 发送
 
-- 有共享输入：逐项用“获取 URL 内容”向 `/file` 发 multipart 文件。
-- 无共享输入且剪贴板为图片：Base64 编码后向 `/api/v1/clipboard` 发 JSON，type 为 `image`。
-- 其他剪贴板内容：向 `/clipboard` 发 form 字段 `clipboard`。
+- 有共享输入且为图片：Base64 编码后向 `/api/v1/clipboard` 发 JSON，type 为 `image`。这是首选路径，避开 iOS 1.5.4 multipart 把文件名回填到文件 body 的 quirk。
+- 有共享输入且为非图片文件：逐项用“获取 URL 内容”向 `/file` 发 multipart 文件。
+- 无共享输入且 iPhone 剪贴板为图片：Base64 编码后向 `/api/v1/clipboard` 发 JSON。
+- 其他 iPhone 剪贴板内容：向 `/clipboard` 发 form 字段 `clipboard`。**不要**把分享图片的文件名也回填到这里——服务端会把单 token 的文件名 / HEIC 标识识别为 iOS quirk 并返回 HTTP 400。
+
+#### 发送时排查“只有文件名、没有内容”
+
+AirDropPlus 1.5.4 官方签名快捷指令在某些 iOS 版本上会把 file 字段 body 发成空、或退化成原文件名字符串；服务端现在会直接返回 HTTP 400，错误信息形如：
+
+```text
+received file "IMG_0042.PNG" is empty; check the iOS shortcut's file field
+received file "IMG_0042.PNG" contains only its name; check the iOS shortcut's file field
+clipboard form value "IMG_0042.HEIC" looks like a filename; send the image as multipart to /file or Base64 JSON to /api/v1/clipboard
+```
+
+如果出现前两条提示，请确认在“获取 URL 内容”动作里：
+
+- 请求体类型：`Form` → `Multipart/form-data`
+- 字段：`file`，类型 `File`，值是直接拖入的图片/文件变量（不是变量名字符串）
+- 不要把“Shortcut Input”当作文件名字符串当 body 发出
+
+第三条 `looks like a filename` 出现时，意味着 iPhone 端把图片的标题字符串塞到了 `/clipboard` 的 urlencoded 表单里（不是二进制）。这是 1.5.4 在某些 iOS 版本上把“分享图片”错误降级到文本通道造成的。本项目自有蓝图已经把分享图片改为走 `/api/v1/clipboard` 的 JSON Base64 接口，避开这条降级路径。
+
+收到 400 时，iPhone 端可以用“显示通知”动作把响应原文展示出来，方便判断是哪种异常。
 
 ### 接收
 
@@ -49,9 +70,11 @@ ShortcutVersion: 1.5.4
 
 ## 图片同步说明
 
-- iPhone → Windows 图片使用新 JSON API，要求 PNG Base64。
+- iPhone → Windows 图片使用新 JSON API，要求 PNG Base64。本项目自有蓝图已把分享图片统一改走这条路径，避免 iOS 1.5.4 把 multipart 文件 body 回填为文件名的 quirk。
+- 兼容 `/clipboard` 现在也接受 multipart 图片字段，以及 `data:image/...;base64,...` / 可解码的图片 Base64；这些会记录为图片并在 UI 显示缩略图，不再降级成文件名。**只有“单 token + 媒体扩展名 / `IMG_xxxx` 形态”的值会触发 400**，普通正文 / 句子 / URL 不受影响。
 - Windows → iPhone 支持 Windows 剪贴板常见的 24/32 位未压缩 DIB，服务转换为 PNG。
 - “复制文件”与“复制文件里的图片”不同：前者作为文件传输，后者作为剪贴板图片传输。
+- iPhone HEIC 走 `/file` multipart 时，文件会按原字节落盘到 `dist/received/`，但 Windows 剪贴板无法被 Go 的 `image.Decode` 解析（仅支持 PNG/JPEG/GIF）。此时 PC 日志会出现 `image saved but clipboard update skipped: decoder does not support this format`，剪贴板条目保持上一条；这是预期行为，不是上传失败。
 
 ## 固定地址要求
 
